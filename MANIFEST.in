@@ -1,0 +1,13 @@
+include payloads/*.yaml
+include templates/*.html
+include templates/*.j2
+include attack_map.html
+include README.md
+include LICENSE
+recursive-include core *.py
+recursive-include detectors *.py
+recursive-include reporters *.py
+recursive-include scripts *.py
+exclude reports/*
+exclude __pycache__/*
+exclude *.pyc

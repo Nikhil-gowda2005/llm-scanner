@@ -1,0 +1,11 @@
+# Core runtime dependencies
+requests>=2.28.0
+pyyaml>=6.0
+colorama>=0.4.6
+jinja2>=3.1.0
+
+# Optional: web UI
+# flask>=3.0.0
+
+# Optional: payload fetcher
+# (uses requests — already listed above)
