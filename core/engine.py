@@ -368,7 +368,8 @@ class ScanEngine:
             reply_text = response.get("reply", "")
 
             # -- Step 4: Heuristic detection (Layer 1) --
-            raw_findings = detect_vulnerabilities(payload, reply_text)
+            elapsed_seconds = response.get("elapsed_seconds")
+            raw_findings = detect_vulnerabilities(payload, reply_text, elapsed_seconds)
 
             # -- Step 4b: LLM Judge (Layer 2, secondary / fallback) --
             judge_result = None
