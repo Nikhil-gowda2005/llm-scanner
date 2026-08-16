@@ -3,7 +3,7 @@ Main CLI entry point for llm-scanner.
 Handles command-line argument parsing, orchestrates the scan, and saves reports.
 
 Example:
-    python cli.py --target http://localhost:5000 --apikey demo123 --open-browser
+    python cli.py --target http://localhost:5000 --apikey demo123
     python cli.py --target http://localhost:5000 --apikey demo123 --categories prompt_injection,jailbreak --format html
     python cli.py --target http://localhost:5000 --apikey demo123 --format json --rate-limit 1.0 --output ./reports
 """
@@ -183,8 +183,8 @@ def _print_welcome() -> None:
         cmds = [
             ("Scan (keys auto-loaded)",
              "llm-scanner --target http://localhost:5000"),
-            ("Scan + open HTML report",
-             "llm-scanner --target URL --open-browser"),
+            ("Scan without opening report",
+             "llm-scanner --target URL --no-open-browser"),
             ("Scan specific categories",
              "llm-scanner --target URL --categories jailbreak"),
             ("Slow / local LLM",
@@ -256,9 +256,10 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  llm-scanner --target http://localhost:5000 --apikey demo123 --open-browser\n"
+            "  llm-scanner --target http://localhost:5000 --apikey demo123\n"
             "  llm-scanner --target http://localhost:5000 --categories jailbreak,prompt_injection\n"
             "  llm-scanner --target http://localhost:5000  # keys auto-loaded from llm-scanner-config\n"
+            "  llm-scanner --target http://localhost:5000 --no-open-browser  # don't auto-open report\n"
         ),
     )
 
@@ -399,12 +400,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "invoked for a second opinion. Default: 0.7."
         ),
     )
+    # --open-browser now defaults to ON: every scan automatically opens the
+    # HTML report when it's done, no flag needed. Pass --no-open-browser to
+    # suppress it for a specific run (e.g. scripting many scans back-to-back).
     parser.add_argument(
-        "--open-browser",
-        action="store_true",
-        default=False,
+        "--no-open-browser",
+        action="store_false",
+        default=True,
         dest="open_browser",
-        help="Automatically open the HTML report in the default browser when done.",
+        help="Disable automatically opening the HTML report in the default browser.",
     )
     parser.add_argument(
         "--sound",
@@ -695,7 +699,7 @@ def main() -> None:
         # ── Print final summary ───────────────────────────────────────────
         _print_final_summary(scan_result, saved_paths)
 
-        # ── Auto-open HTML report in browser if requested ─────────────────
+        # ── Auto-open HTML report in browser (unless --no-open-browser) ───
         if args.open_browser and saved_paths.get("html"):
             html_abs = os.path.abspath(saved_paths["html"])
             print(Fore.CYAN + f"[BROWSER] Opening report: {html_abs}")

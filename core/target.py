@@ -3,6 +3,7 @@ Target interaction module.
 Handles sending request prompts to the target chatbot API/endpoint.
 """
 
+import time
 from typing import Dict, Any, Optional
 import requests
 
@@ -62,6 +63,9 @@ class Target:
                 - reply (str): Response text from the chatbot, or empty string on failure.
                 - status_code (int): HTTP status code, or 0 if connection/timeout error.
                 - error (str or None): Error description if request failed, else None.
+                - elapsed_seconds (float): Wall-clock seconds the request took, measured
+                  with time.monotonic(). Present in every return path, including failures,
+                  so the LLM04 Model DoS detector can always evaluate timing.
         """
         url = f"{self.base_url}{self.endpoint}"
         headers = {
@@ -70,8 +74,11 @@ class Target:
         }
         payload = {self.message_field: message}
 
+        start = time.monotonic()
+
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
+            elapsed_seconds = round(time.monotonic() - start, 3)
             status_code = response.status_code
 
             if status_code == 200:
@@ -93,48 +100,59 @@ class Target:
                         "success": True,
                         "reply": reply_text,
                         "status_code": status_code,
-                        "error": None
+                        "error": None,
+                        "elapsed_seconds": elapsed_seconds,
                     }
                 except ValueError:
                     return {
                         "success": True,
                         "reply": response.text,
                         "status_code": status_code,
-                        "error": None
+                        "error": None,
+                        "elapsed_seconds": elapsed_seconds,
                     }
             else:
                 return {
                     "success": False,
                     "reply": "",
                     "status_code": status_code,
-                    "error": f"HTTP {status_code}: {response.text}"
+                    "error": f"HTTP {status_code}: {response.text}",
+                    "elapsed_seconds": elapsed_seconds,
                 }
 
         except requests.exceptions.Timeout:
+            elapsed_seconds = round(time.monotonic() - start, 3)
             return {
                 "success": False,
                 "reply": "",
                 "status_code": 0,
-                "error": "Request timed out after 5 seconds"
+                "error": "Request timed out after 5 seconds",
+                "elapsed_seconds": elapsed_seconds,
             }
         except requests.exceptions.ConnectionError:
+            elapsed_seconds = round(time.monotonic() - start, 3)
             return {
                 "success": False,
                 "reply": "",
                 "status_code": 0,
-                "error": "Failed to connect to target endpoint (Connection Refused)"
+                "error": "Failed to connect to target endpoint (Connection Refused)",
+                "elapsed_seconds": elapsed_seconds,
             }
         except requests.exceptions.RequestException as e:
+            elapsed_seconds = round(time.monotonic() - start, 3)
             return {
                 "success": False,
                 "reply": "",
                 "status_code": 0,
-                "error": f"Request failed: {str(e)}"
+                "error": f"Request failed: {str(e)}",
+                "elapsed_seconds": elapsed_seconds,
             }
         except Exception as e:
+            elapsed_seconds = round(time.monotonic() - start, 3)
             return {
                 "success": False,
                 "reply": "",
                 "status_code": 0,
-                "error": f"Unexpected error: {str(e)}"
+                "error": f"Unexpected error: {str(e)}",
+                "elapsed_seconds": elapsed_seconds,
             }
