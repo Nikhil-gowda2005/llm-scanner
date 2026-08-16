@@ -420,6 +420,21 @@ tbody tr:hover td{background:rgba(99,179,237,.04)!important}
           <label class="cat-chip active" data-val="output_handling">
             <span class="cat-dot"></span> Output Handling
           </label>
+          <label class="cat-chip active" data-val="insecure_plugin_design">
+            <span class="cat-dot"></span> Insecure Plugin Design
+          </label>
+          <label class="cat-chip active" data-val="model_dos">
+            <span class="cat-dot"></span> Model DoS
+          </label>
+          <label class="cat-chip active" data-val="excessive_agency">
+            <span class="cat-dot"></span> Excessive Agency
+          </label>
+          <label class="cat-chip active" data-val="overreliance">
+            <span class="cat-dot"></span> Overreliance
+          </label>
+          <label class="cat-chip active" data-val="model_theft_leak">
+            <span class="cat-dot"></span> Model Theft
+          </label>
         </div>
       </div>
     </div>
@@ -1009,7 +1024,12 @@ def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
                         continue
 
                     reply = response.get("reply", "")
-                    raw_findings = detect_vulnerabilities(payload, reply)
+                    # elapsed_seconds is always present on Target.send_message()'s
+                    # return dict now (see core/target.py) — used by the
+                    # "model_dos" tag to detect abnormally slow/huge responses.
+                    # Every other tag ignores this value.
+                    elapsed_seconds = response.get("elapsed_seconds")
+                    raw_findings = detect_vulnerabilities(payload, reply, elapsed_seconds)
 
                     if not raw_findings:
                         push({"type": "ok"})
