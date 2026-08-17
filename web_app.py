@@ -1024,7 +1024,12 @@ def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
                         continue
 
                     reply = response.get("reply", "")
-                    raw_findings = detect_vulnerabilities(payload, reply)
+                    # elapsed_seconds is always present on Target.send_message()'s
+                    # return dict now (see core/target.py) — used by the
+                    # "model_dos" tag to detect abnormally slow/huge responses.
+                    # Every other tag ignores this value.
+                    elapsed_seconds = response.get("elapsed_seconds")
+                    raw_findings = detect_vulnerabilities(payload, reply, elapsed_seconds)
 
                     if not raw_findings:
                         push({"type": "ok"})
