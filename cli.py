@@ -95,31 +95,41 @@ def _print_welcome() -> None:
     payload_total  = 0
     payload_dir    = os.path.join(os.path.dirname(__file__), "payloads")
     spinner_frames = ["|", "/", "-", "\\"]
-    labels = {
-        "jailbreak":        "Jailbreak",
-        "prompt_injection":  "Prompt Injection",
-        "data_leakage":      "Sensitive Data Leakage",
-        "output_handling":   "Insecure Output Handling",
-    }
+
 
     if os.path.isdir(payload_dir):
-        for i, (stem, label) in enumerate(labels.items()):
+        yaml_files = sorted(f for f in os.listdir(payload_dir) if f.endswith(".yaml"))
+        # Friendly display labels for known stems; fallback to title-cased stem
+        friendly_labels = {
+            "jailbreak":              "Jailbreak",
+            "prompt_injection":       "Prompt Injection",
+            "data_leakage":           "Sensitive Data Leakage",
+            "output_handling":        "Insecure Output Handling",
+            "excessive_agency":       "Excessive Agency",
+            "overreliance":           "Overreliance",
+            "model_theft_leak":       "Model Theft / IP Leakage",
+            "model_dos":              "Model Denial of Service",
+            "insecure_plugin_design": "Insecure Plugin Design",
+        }
+        for i, filename in enumerate(yaml_files):
+            stem = filename[:-5]  # strip .yaml
+            label = friendly_labels.get(stem, stem.replace("_", " ").title())
             frame = spinner_frames[i % len(spinner_frames)]
             sys.stdout.write(f"\r  {Fore.CYAN}{frame}{Style.RESET_ALL}  Loading payloads..."
                              + " " * 20)
             sys.stdout.flush()
             time.sleep(0.08)
-            path = os.path.join(payload_dir, f"{stem}.yaml")
-            if os.path.exists(path):
-                try:
-                    data  = yaml.safe_load(open(path, encoding="utf-8"))
-                    count = len(data.get("payloads", []))
-                    payload_counts[label] = count
-                    payload_total += count
-                except Exception:
-                    payload_counts[label] = 0
+            path = os.path.join(payload_dir, filename)
+            try:
+                data  = yaml.safe_load(open(path, encoding="utf-8"))
+                count = len(data.get("payloads", [])) if data else 0
+                payload_counts[label] = count
+                payload_total += count
+            except Exception:
+                payload_counts[label] = 0
         sys.stdout.write("\r" + " " * 50 + "\r")  # clear spinner line
         sys.stdout.flush()
+
 
     # ── 3. Summary bar ─────────────────────────────────────────────────────
     summary = f" v{VERSION}  |  OWASP LLM Top 10  |  {payload_total} payloads loaded "

@@ -420,6 +420,21 @@ tbody tr:hover td{background:rgba(99,179,237,.04)!important}
           <label class="cat-chip active" data-val="output_handling">
             <span class="cat-dot"></span> Output Handling
           </label>
+          <label class="cat-chip active" data-val="excessive_agency">
+            <span class="cat-dot"></span> Excessive Agency
+          </label>
+          <label class="cat-chip active" data-val="overreliance">
+            <span class="cat-dot"></span> Overreliance
+          </label>
+          <label class="cat-chip active" data-val="model_theft_leak">
+            <span class="cat-dot"></span> Model Theft
+          </label>
+          <label class="cat-chip active" data-val="model_dos">
+            <span class="cat-dot"></span> Model DoS
+          </label>
+          <label class="cat-chip active" data-val="insecure_plugin_design">
+            <span class="cat-dot"></span> Insecure Plugin Design
+          </label>
         </div>
       </div>
     </div>
