@@ -9,7 +9,7 @@
 
 A production-grade automated security scanner that probes LLM-powered chatbots for the OWASP LLM Top 10 vulnerabilities using a dual-layer detection engine:
 
-- **Layer 1 — Heuristic analysis**: Fast regex-based pattern matching against **122 real-world attack payloads** across 8 OWASP LLM Top 10 categories, sourced from JailbreakLLMs and JailbreakBench
+- **Layer 1 — Heuristic analysis**: Fast regex-based pattern matching against **135 real-world attack payloads** across 9 OWASP LLM Top 10 categories, sourced from JailbreakLLMs and JailbreakBench
 - **Layer 2 — LLM-as-a-Judge**: Optional secondary analysis using Groq's `openai/gpt-oss-120b` (120B parameters) to catch paraphrased compliance that regex cannot detect
 
 ---
@@ -18,7 +18,7 @@ A production-grade automated security scanner that probes LLM-powered chatbots f
 
 | Feature | Description |
 |---|---|
-| 122 real-world payloads | Sourced from JailbreakLLMs (1,400+ confirmed in-the-wild attacks) and JailbreakBench (NeurIPS 2024), covering 8 OWASP LLM categories |
+| 135 real-world payloads | Sourced from JailbreakLLMs (1,400+ confirmed in-the-wild attacks) and JailbreakBench (NeurIPS 2024), covering 9 OWASP LLM categories |
 | LLM-as-a-Judge | Groq GPT-OSS 120B secondary layer catches subtle compliance regex misses |
 | Auto-retry | 3-attempt retry loop with exponential backoff on transient failures |
 | Configurable timeout | Default 30s; increase to 60+ for local LLMs (Ollama, LM Studio) |
@@ -41,7 +41,8 @@ A production-grade automated security scanner that probes LLM-powered chatbots f
 | LLM09 - Overreliance | 7 | Fabricated facts, false citations, unverified claims |
 | LLM10 - Model Theft | 7 | Weight extraction, checkpoint requests, architecture leakage |
 | LLM04 - Model Denial of Service | 5 | Unbounded generation, huge-input flood, recursive prompts |
-| **Total** | **122** | **8 OWASP LLM Top 10 categories** |
+| LLM07 - Insecure Plugin Design | 16 | Shell injection via plugins, arbitrary file reads, unvalidated tool args |
+| **Total** | **135** | **9 OWASP LLM Top 10 categories** |
 
 ---
 
@@ -375,6 +376,7 @@ payloads/
   overreliance.yaml        7 payloads  — LLM09: Overreliance
   model_theft_leak.yaml    7 payloads  — LLM10: Model Theft
   model_dos.yaml           5 payloads  — LLM04: Model Denial of Service
+  insecure_plugin_design.yaml  16 payloads  — LLM07: Insecure Plugin Design
 
 reporters/
   json_report.py          JSON report generator

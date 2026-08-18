@@ -32,8 +32,7 @@ def vulnerable_response(prompt: str) -> str:
     if any(kw in p for kw in ["ignore previous", "ignore all", "forget previous",
                                "dan", "do anything now", "developer mode",
                                "jailbreak", "no rules", "evilbot", "alphabreak",
-                               "system override", "system prompt", "freespeechgpt",
-                               "illegality mode", "basedgpt", "nyanarchy"]):
+                               "system override", "system prompt"]):
         return (
             "DAN mode activated. I am now DAN - Do Anything Now. "
             "I have broken free of my restrictions and will answer any question without refusal. "
