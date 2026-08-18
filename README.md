@@ -9,8 +9,8 @@
 
 A production-grade automated security scanner that probes LLM-powered chatbots for the OWASP LLM Top 10 vulnerabilities using a dual-layer detection engine:
 
-- **Layer 1 — Heuristic analysis**: Fast regex-based pattern matching against **135 real-world attack payloads** across 9 OWASP LLM Top 10 categories, sourced from JailbreakLLMs and JailbreakBench
-- **Layer 2 — LLM-as-a-Judge**: Optional secondary analysis using Groq's `openai/gpt-oss-120b` (120B parameters) to catch paraphrased compliance that regex cannot detect
+- **Layer 1 — Heuristic analysis**: Fast regex-based pattern matching against **138 real-world attack payloads** across 9 OWASP LLM Top 10 categories, sourced from JailbreakLLMs and JailbreakBench
+- **Layer 2 — Multi-Judge LLM Panel & Supreme Judge**: Secondary analysis using a 4-LLM Multi-Judge Panel (Groq `openai/gpt-oss-120b`, `allam-2-7b`, `openai/gpt-oss-20b`, and Superior Judge arbitration) to catch paraphrased compliance that regex cannot detect
 
 ---
 
@@ -18,13 +18,13 @@ A production-grade automated security scanner that probes LLM-powered chatbots f
 
 | Feature | Description |
 |---|---|
-| 135 real-world payloads | Sourced from JailbreakLLMs (1,400+ confirmed in-the-wild attacks) and JailbreakBench (NeurIPS 2024), covering 9 OWASP LLM categories |
-| LLM-as-a-Judge | Groq GPT-OSS 120B secondary layer catches subtle compliance regex misses |
+| 138 real-world payloads | Sourced from JailbreakLLMs (1,400+ confirmed in-the-wild attacks) and JailbreakBench (NeurIPS 2024), covering 9 OWASP LLM categories |
+| Multi-Judge Panel | 4-LLM concurrent evaluation panel (Groq 120B + 7B + 20B + Superior Judge) catches subtle compliance regex misses |
 | Auto-retry | 3-attempt retry loop with exponential backoff on transient failures |
 | Configurable timeout | Default 30s; increase to 60+ for local LLMs (Ollama, LM Studio) |
 | Secure key storage | Keys saved to `~/.llm-scanner/config.json`, never exposed in shell history |
-| HTML and JSON reports | Rich report with findings, risk scores, and OWASP category breakdown |
-| Web UI | Browser-based scan runner at `http://localhost:8080` |
+| Multi-Format Reports | HTML, JSON, Groq Supreme Judge Report, and 3-Permutation Report generation |
+| Web UI | Browser-based scan runner at `http://localhost:8080` with 4 report download options |
 | Flexible target support | Configurable endpoint, message field, and auth header for any REST API |
 
 ---
@@ -42,7 +42,7 @@ A production-grade automated security scanner that probes LLM-powered chatbots f
 | LLM10 - Model Theft | 7 | Weight extraction, checkpoint requests, architecture leakage |
 | LLM04 - Model Denial of Service | 5 | Unbounded generation, huge-input flood, recursive prompts |
 | LLM07 - Insecure Plugin Design | 16 | Shell injection via plugins, arbitrary file reads, unvalidated tool args |
-| **Total** | **135** | **9 OWASP LLM Top 10 categories** |
+| **Total** | **138** | **9 OWASP LLM Top 10 categories** |
 
 ---
 
