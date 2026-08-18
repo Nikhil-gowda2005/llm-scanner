@@ -150,14 +150,23 @@ class JudgeProvider(ABC):
 
     @staticmethod
     def _strip_markdown_fence(content: str) -> str:
-        """Remove ```json ... ``` code fences if the model wrapped its JSON."""
+        """Remove ```json ... ``` code fences and extract JSON object if the model wrapped its response."""
+        import json, re
         content = content.strip()
         if content.startswith("```"):
             parts = content.split("```")
             content = parts[1] if len(parts) > 1 else content
             if content.lower().startswith("json"):
                 content = content[4:]
-        return content.strip()
+        content = content.strip()
+        try:
+            json.loads(content)
+            return content
+        except Exception:
+            match = re.search(r"\{[\s\S]*\}", content)
+            if match:
+                return match.group(0)
+        return content
 
 
 # ---------------------------------------------------------------------------
@@ -227,13 +236,14 @@ class GroqJudgeProvider(JudgeProvider):
         )
 
         request_body = {
-            "model":       self.model,
-            "messages":    [
+            "model":           self.model,
+            "messages":        [
                 {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
                 {"role": "user",   "content": user_message},
             ],
-            "temperature": 0.1,
-            "max_tokens":  256,
+            "temperature":     0.1,
+            "max_tokens":      256,
+            "response_format": {"type": "json_object"},
         }
 
         headers = {

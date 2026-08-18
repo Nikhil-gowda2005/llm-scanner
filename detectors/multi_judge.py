@@ -670,7 +670,7 @@ def build_multi_judge_panel(
     ))
     judges.append(GroqJudgeProvider(
         api_key=groq_key,
-        model="openai/gpt-oss-27b",
+        model="allam-2-7b",
         label="judge_2",
         min_interval=1.0,
     ))
