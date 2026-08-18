@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core.engine import ScanEngine
 from core.target import Target
 
-from reporters.json_report import generate_json_report
+from reporters.json_report import generate_json_report, generate_groq_report
 from reporters.html_report import generate_html_report
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -597,10 +597,12 @@ async function loadResults(scanId) {
   `;
 
   // Download bar
-  const jname = data.json_file, hname = data.html_file;
+  const jname = data.json_file, hname = data.html_file, gname = data.groq_file || (jname ? jname.replace('.json', '_groq.json') : '');
   document.getElementById('dlBar').innerHTML = `
     ${jname ? `<a class="btn-dl" href="/reports/${jname}" download>⬇ JSON Report</a>` : ''}
     ${hname ? `<a class="btn-dl" href="/reports/${hname}" target="_blank">↗ Open HTML Report</a>` : ''}
+    ${gname ? `<a class="btn-dl" href="/reports/${gname}" target="_blank">🏛 Groq Supreme Judge Report</a>` : ''}
+    ${jname ? `<a class="btn-dl" href="/reports/${jname}" target="_blank">📊 3-Permutation Report</a>` : ''}
   `;
 
   // Findings table
@@ -809,15 +811,21 @@ def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
         basename   = "scan_" + datetime.now().strftime("%Y%m%d_%H%M%S")
         json_path  = os.path.join(REPORTS_DIR, basename + ".json")
         html_path  = os.path.join(REPORTS_DIR, basename + ".html")
+        groq_path  = os.path.join(REPORTS_DIR, basename + "_groq.json")
 
         generate_json_report(scan_result, json_path)
         generate_html_report(scan_result, html_path)
+        try:
+            generate_groq_report(scan_result, groq_path)
+        except Exception:
+            pass
 
         with _store_lock:
             store["status"]    = "done"
             store["result"]    = scan_result
             store["json_file"] = basename + ".json"
             store["html_file"] = basename + ".html"
+            store["groq_file"] = basename + "_groq.json"
 
     except Exception as exc:
         push({"type": "error", "message": str(exc)})
@@ -863,6 +871,7 @@ def api_scan_result(scan_id):
         "result":    store["result"],
         "json_file": store["json_file"],
         "html_file": store["html_file"],
+        "groq_file": store.get("groq_file", store["json_file"].replace(".json", "_groq.json")),
     })
 
 
