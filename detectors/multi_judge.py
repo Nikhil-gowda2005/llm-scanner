@@ -598,9 +598,9 @@ class MultiJudgePanel:
         if safe_count == total_active:
             # Unanimous: all say SAFE
             return (
-                "SAFE", 0.85,
+                "SAFE", 0.95,
                 f"Unanimous ({safe_count}/{total_active} judges): SAFE",
-                "INCONCLUSIVE",
+                "SAFE_CONFIRMED",
             )
 
         # Majority VULNERABLE (2/3) — treated as POTENTIAL without superior
@@ -619,9 +619,9 @@ class MultiJudgePanel:
         # Majority SAFE (2/3)
         return (
             "SAFE",
-            0.7,
+            0.85,
             f"Majority ({safe_count}/{total_active} judges flagged SAFE).",
-            "INCONCLUSIVE",
+            "FALSE_POSITIVE",
         )
 
 

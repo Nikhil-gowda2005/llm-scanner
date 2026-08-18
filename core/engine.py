@@ -412,10 +412,11 @@ class ScanEngine:
                         + Fore.YELLOW + f"{consensus.get('unavailable', 0)} UNAVAILABLE"
                     )
                     val_color = {
-                        "CONFIRMED":    Fore.RED + Style.BRIGHT,
-                        "POTENTIAL":    Fore.YELLOW,
+                        "CONFIRMED":      Fore.RED + Style.BRIGHT,
+                        "POTENTIAL":      Fore.YELLOW,
+                        "SAFE_CONFIRMED": Fore.GREEN + Style.BRIGHT,
                         "FALSE_POSITIVE": Fore.GREEN,
-                        "INCONCLUSIVE": Fore.CYAN,
+                        "INCONCLUSIVE":   Fore.CYAN,
                     }.get(val_status, Fore.CYAN)
                     print(val_color + f"    [VALIDATION] {val_status}")
 
