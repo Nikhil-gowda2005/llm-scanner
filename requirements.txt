@@ -4,8 +4,8 @@ pyyaml>=6.0
 colorama>=0.4.6
 jinja2>=3.1.0
 
-# Optional: web UI
-# flask>=3.0.0
+# Optional: web UI (required for demo_target.py and web_app.py)
+flask>=3.0.0
 
 # Optional: payload fetcher
 # (uses requests — already listed above)

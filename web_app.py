@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.engine import ScanEngine
 from core.target import Target
-from core import live_status as _ls
+
 from reporters.json_report import generate_json_report
 from reporters.html_report import generate_html_report
 
@@ -270,73 +270,7 @@ tbody tr:hover td{background:rgba(99,179,237,.04)!important}
 .risk-track{flex:1;height:5px;background:var(--border);border-radius:99px;overflow:hidden;min-width:45px}
 .risk-fill{height:100%;border-radius:99px}
 
-/* -- Attack Map ------------------------------------------------------ */
-.map-section{margin-bottom:2rem}
-.map-section-label{font-size:.68rem;font-weight:800;text-transform:uppercase;
-  letter-spacing:.12em;color:var(--text3);margin:2rem 0 1rem;
-  display:flex;align-items:center;gap:.6rem}
-.map-section-label::after{content:'';flex:1;height:1px;background:var(--border)}
-.map-outer{background:var(--card);border:1px solid var(--border);border-radius:20px;
-  padding:1.5rem;box-shadow:var(--shadow)}
-.map-status-row{display:flex;align-items:center;justify-content:space-between;
-  margin-bottom:1rem;gap:1rem;flex-wrap:wrap}
-.map-badge{display:inline-block;padding:4px 16px;border-radius:999px;font-size:.72rem;
-  font-weight:700;letter-spacing:.05em;text-transform:uppercase;
-  background:rgba(99,179,237,.1);border:1px solid rgba(99,179,237,.3);color:var(--cyan);
-  transition:all .5s}
-.map-badge.scanning{background:rgba(251,146,60,.1);border-color:rgba(251,146,60,.4);color:#fb923c}
-.map-badge.done{background:rgba(74,222,128,.1);border-color:rgba(74,222,128,.4);color:#4ade80}
-.map-target-url{font-size:.72rem;color:var(--text2);font-family:'JetBrains Mono',monospace;opacity:.7}
-.map-wrap{position:relative;width:100%;max-width:460px;height:460px;margin:0 auto}
-.map-wrap svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
-.map-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-  width:82px;height:82px;background:linear-gradient(135deg,#1e2140,#2a2f5e);
-  border:2px solid rgba(99,179,237,.55);border-radius:50%;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  font-size:.62rem;font-weight:700;color:var(--cyan);letter-spacing:.08em;
-  text-transform:uppercase;z-index:2;box-shadow:0 0 20px rgba(99,179,237,.2),0 0 0 5px rgba(99,179,237,.06)}
-.map-center .mc-icon{font-size:1.3rem;margin-bottom:2px}
-.map-cat{position:absolute;width:82px;height:82px;border-radius:50%;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  font-size:.52rem;font-weight:600;text-align:center;padding:5px;
-  line-height:1.3;z-index:2;transform:translate(-50%,-50%);
-  transition:background .5s,border-color .5s,box-shadow .5s}
-.map-cat.pending{background:#1a1f35;border:2px solid rgba(136,146,176,.3);color:#8892b0}
-.map-cat.testing{background:rgba(251,146,60,.14);border:2px solid #fb923c;color:#fb923c;
-  animation:map-pulse 1.1s ease-in-out infinite}
-.map-cat.safe{background:rgba(74,222,128,.12);border:2px solid #4ade80;color:#4ade80;
-  box-shadow:0 0 14px rgba(74,222,128,.25)}
-.map-cat.vulnerable{background:rgba(248,113,113,.14);border:2px solid #f87171;color:#f87171;
-  box-shadow:0 0 18px rgba(248,113,113,.35)}
-@keyframes map-pulse{
-  0%{box-shadow:0 0 8px rgba(251,146,60,.3)}
-  50%{box-shadow:0 0 24px rgba(251,146,60,.65)}
-  100%{box-shadow:0 0 8px rgba(251,146,60,.3)}}
-.map-cat-icon{font-size:.95rem;margin-bottom:1px}
-.map-cat-name{max-width:68px;word-break:break-word;text-align:center}
-.map-cat-count{font-size:.55rem;font-weight:700;margin-top:3px;opacity:.9;line-height:1.3}
-.map-ct-safe{color:#4ade80}
-.map-ct-vuln{color:#f87171}
-.map-prog-track{height:8px;background:var(--border);border-radius:999px;
-  overflow:hidden;margin-top:1.2rem;border:1px solid var(--border)}
-.map-prog-fill{height:100%;background:linear-gradient(90deg,var(--cyan),var(--purple));
-  border-radius:999px;transition:width .6s cubic-bezier(.4,0,.2,1);width:0%}
-.map-prog-label{display:flex;justify-content:space-between;font-size:.72rem;
-  color:var(--text2);margin-top:.5rem}
-.map-done-banner{display:none;margin-top:1rem;padding:12px 20px;border-radius:12px;
-  background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);
-  color:#4ade80;font-size:.88rem;font-weight:700;text-align:center;
-  animation:map-celebrate .6s cubic-bezier(.4,0,.2,1)}
-@keyframes map-celebrate{
-  0%{transform:scale(.88);opacity:0}70%{transform:scale(1.03)}100%{transform:scale(1);opacity:1}}
-.map-legend{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;
-  margin-top:1rem;font-size:.7rem;color:var(--text2)}
-.map-legend-item{display:flex;align-items:center;gap:5px}
-.map-legend-dot{width:10px;height:10px;border-radius:50%;border:2px solid;flex-shrink:0}
-.map-legend-dot.pending{background:#1a1f35;border-color:rgba(136,146,176,.4)}
-.map-legend-dot.testing{background:rgba(251,146,60,.14);border-color:#fb923c}
-.map-legend-dot.safe{background:rgba(74,222,128,.12);border-color:#4ade80}
-.map-legend-dot.vulnerable{background:rgba(248,113,113,.14);border-color:#f87171}
+
 
 /* -- Empty state ---------------------------------------------------- */
 .no-findings{background:var(--card);border:1px solid rgba(34,197,94,.3);border-radius:14px;
@@ -472,34 +406,7 @@ tbody tr:hover td{background:rgba(99,179,237,.04)!important}
     <div class="terminal" id="terminal"></div>
   </div>
 
-  <!-- Attack Map -->
-  <div class="map-section" id="mapSection">
-    <div class="map-section-label">&#x1F5FA;&#xFE0F; Live Attack Map</div>
-    <div class="map-outer">
-      <div class="map-status-row">
-        <span class="map-badge" id="mapBadge">Idle</span>
-        <span class="map-target-url" id="mapTargetUrl"></span>
-      </div>
-      <div class="map-wrap" id="mapWrap">
-        <svg id="mapSvg"></svg>
-        <div class="map-center" id="mapCenter">
-          <span class="mc-icon">&#x1F3AF;</span>TARGET
-        </div>
-      </div>
-      <div class="map-prog-track"><div class="map-prog-fill" id="mapProgFill"></div></div>
-      <div class="map-prog-label">
-        <span>Payloads tested</span>
-        <span id="mapProgText">0 / 0</span>
-      </div>
-      <div class="map-done-banner" id="mapDoneBanner">&#x2705; Scan complete! All payloads tested.</div>
-      <div class="map-legend">
-        <div class="map-legend-item"><div class="map-legend-dot pending"></div>Pending</div>
-        <div class="map-legend-item"><div class="map-legend-dot testing"></div>Testing</div>
-        <div class="map-legend-item"><div class="map-legend-dot safe"></div>Safe</div>
-        <div class="map-legend-item"><div class="map-legend-dot vulnerable"></div>Vulnerable</div>
-      </div>
-    </div>
-  </div>
+
 
   <!-- Results -->
   <div class="results-section" id="resultsSection">
@@ -519,124 +426,9 @@ let currentScanId = null;
 let totalPayloads = 0;
 let donePayloads  = 0;
 
-// -- Attack Map state --
-let _mapPollTimer = null;
-let _mapNodes     = {};
-let _mapCatOrder  = [];
-let _mapDone      = false;
-
-function _stateIcon(s){
-  return {pending:'\u23F3',testing:'\u26A1',safe:'\u2705',vulnerable:'\u26A0\uFE0F'}[s]||'';
-}
-function _escHtml(str){
-  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-function _shortCat(cat){
-  return cat.replace(/OWASP LLM\\d*[:\\s]*/i,'').trim().substring(0,48);
-}
-
-function _buildMap(cats){
-  const wrap = document.getElementById('mapWrap');
-  const svg  = document.getElementById('mapSvg');
-  _mapCatOrder = cats; _mapNodes = {};
-  wrap.querySelectorAll('.map-cat').forEach(n=>n.remove());
-  svg.innerHTML='';
-  const cx=50,cy=50,r=38;
-  cats.forEach((cat,i)=>{
-    const angle=(2*Math.PI*i/cats.length)-(Math.PI/2);
-    const px=cx+r*Math.cos(angle), py=cy+r*Math.sin(angle);
-    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
-    line.setAttribute('x1',cx+'%');line.setAttribute('y1',cy+'%');
-    line.setAttribute('x2',px+'%');line.setAttribute('y2',py+'%');
-    line.setAttribute('stroke','rgba(99,179,237,0.15)');
-    line.setAttribute('stroke-width','1.5');
-    line.setAttribute('stroke-dasharray','4 4');
-    svg.appendChild(line);
-    const node=document.createElement('div');
-    node.className='map-cat pending';
-    node.style.left=px+'%'; node.style.top=py+'%';
-    node.innerHTML=`<span class="map-cat-icon">${_stateIcon('pending')}</span>`+
-      `<span class="map-cat-name">${_escHtml(_shortCat(cat))}</span>`+
-      `<span class="map-cat-count">waiting</span>`;
-    wrap.appendChild(node);
-    _mapNodes[cat]=node;
-  });
-}
-
-function _mapCountHtml(data){
-  const s=data.safe_count||0, v=data.findings||0, t=data.tested||0;
-  if(t===0) return 'waiting';
-  let parts=[];
-  if(s>0) parts.push(`<span class="map-ct-safe">\u2705 ${s} safe</span>`);
-  if(v>0) parts.push(`<span class="map-ct-vuln">\u26A0\uFE0F ${v} vuln</span>`);
-  if(!parts.length) return `${t} tested`;
-  return parts.join(' \u00B7 ');
-}
-
-function _updateMapNode(cat,data){
-  const node=_mapNodes[cat]; if(!node)return;
-  node.className='map-cat '+data.state;
-  node.innerHTML=`<span class="map-cat-icon">${_stateIcon(data.state)}</span>`+
-    `<span class="map-cat-name">${_escHtml(_shortCat(cat))}</span>`+
-    `<span class="map-cat-count">${_mapCountHtml(data)}</span>`;
-}
-
-function _applyMapStatus(s){
-  const cats=Object.keys(s.categories||{});
-  if(!_mapCatOrder.length||cats.join()!==_mapCatOrder.join()) _buildMap(cats);
-  cats.forEach(c=>_updateMapNode(c,s.categories[c]));
-  const prog=s.overall_progress||{tested:0,total:0};
-  const pct=prog.total>0?Math.round(100*prog.tested/prog.total):0;
-  document.getElementById('mapProgFill').style.width=pct+'%';
-  document.getElementById('mapProgText').textContent=prog.tested+' / '+prog.total;
-  document.getElementById('mapTargetUrl').textContent=s.target_url||'';
-  const badge=document.getElementById('mapBadge');
-  if(s.finished && !s.initializing){
-    badge.textContent='Scan complete'; badge.className='map-badge done';
-    if(!_mapDone){
-      _mapDone=true;
-      document.getElementById('mapDoneBanner').style.display='block';
-    }
-  } else if(prog.tested>0||cats.some(c=>s.categories[c].state!=='pending')){
-    badge.textContent='Scanning\u2026'; badge.className='map-badge scanning';
-  } else {
-    badge.textContent='Initialising\u2026'; badge.className='map-badge';
-  }
-}
-
-async function _pollMap(){
-  try{
-    const r=await fetch('/api/live-status?t='+Date.now(),{cache:'no-store'});
-    if(r.ok){
-      const d=await r.json();
-      // Ignore error responses (no scan running yet) or stale finished data
-      // that belongs to a previous scan (detected by "initializing" flag or
-      // empty categories while we are expecting a live scan).
-      if(!d.error && !(d.finished && d.initializing)){
-        _applyMapStatus(d);
-      }
-    }
-  }catch(_){}
-  if(!_mapDone) _mapPollTimer=setTimeout(_pollMap,1000);
-}
-
-function _startMapPolling(){
-  _mapDone=false; _mapCatOrder=[]; _mapNodes={};
-  document.getElementById('mapDoneBanner').style.display='none';
-  document.getElementById('mapProgFill').style.width='0%';
-  document.getElementById('mapProgText').textContent='0 / 0';
-  document.getElementById('mapSvg').innerHTML='';
-  document.getElementById('mapWrap').querySelectorAll('.map-cat').forEach(n=>n.remove());
-  document.getElementById('mapBadge').textContent='Initialising\u2026';
-  document.getElementById('mapBadge').className='map-badge';
-  document.getElementById('mapTargetUrl').textContent='';
-  if(_mapPollTimer){clearTimeout(_mapPollTimer);_mapPollTimer=null;}
-  _mapPollTimer=setTimeout(_pollMap,800);
-}
-
-function _stopMapPolling(){
-  if(_mapPollTimer){clearTimeout(_mapPollTimer);_mapPollTimer=null;}
-}
+// Attack map removed
+function _startMapPolling(){}
+function _stopMapPolling(){}
 
 // ── Theme toggle ─────────────────────────────────────────────
 const saved = localStorage.getItem('llmscanner-theme');
@@ -869,19 +661,6 @@ def index():
     return DASHBOARD_HTML
 
 
-@app.route("/api/live-status")
-def api_live_status():
-    """Serve the live_status.json file content as JSON for the embedded attack map."""
-    path = os.path.join(REPORTS_DIR, "live_status.json")
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        return jsonify(data)
-    except FileNotFoundError:
-        return jsonify({"error": "no scan running"}), 404
-    except Exception:
-        return jsonify({"error": "read error"}), 500
-
 
 @app.route("/api/scan", methods=["POST"])
 def api_scan():
@@ -911,25 +690,6 @@ def api_scan():
             "html_file": None,
         }
 
-    # Reset live_status.json IMMEDIATELY so the JS poller never reads stale
-    # "finished: true" data from a previous scan.  This is synchronous —
-    # by the time the browser first polls /api/live-status (~800ms later)
-    # the file already contains finished=False and empty categories.
-    try:
-        os.makedirs(REPORTS_DIR, exist_ok=True)
-        _reset_status = {
-            "scan_id":          scan_id,
-            "target_url":       url + endpoint,
-            "started_at":       datetime.utcnow().isoformat() + "Z",
-            "categories":       {},
-            "overall_progress": {"tested": 0, "total": 0},
-            "finished":         False,
-            "initializing":     True,
-        }
-        with open(os.path.join(REPORTS_DIR, "live_status.json"), "w", encoding="utf-8") as _fh:
-            json.dump(_reset_status, _fh, indent=2)
-    except Exception:
-        pass
 
     thread = threading.Thread(
         target=_run_scan_thread,
@@ -967,24 +727,6 @@ def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
                 all_findings = []
                 total_tested = 0
 
-                # -- Live map: init status --
-                _lm_status = {}
-                _lm_path = os.path.join(REPORTS_DIR, "live_status.json")
-                try:
-                    _cat_order, _cat_totals = [], {}
-                    for _c, _p in payload_list:
-                        if _c not in _cat_totals:
-                            _cat_order.append(_c); _cat_totals[_c] = 0
-                        _cat_totals[_c] += 1
-                    _lm_status = _ls.init_status(_cat_order, url + endpoint)
-                    for _c in _cat_order:
-                        _lm_status["categories"][_c]["total"] = _cat_totals[_c]
-                        _lm_status["categories"][_c]["safe_count"] = 0
-                    _lm_status["overall_progress"]["total"] = len(payload_list)
-                    _ls.write_status(_lm_status, _lm_path)
-                except Exception:
-                    pass
-                _lm_prev_cat = None
 
                 for idx, (category, payload) in enumerate(payload_list, 1):
                     pid   = payload.get("id", f"UNKNOWN-{idx}")
@@ -994,20 +736,7 @@ def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
                     push({"type": "progress", "id": pid, "name": pname,
                           "idx": idx, "total": len(payload_list)})
 
-                    # -- Live map: category transitions --
-                    if _lm_status:
-                        try:
-                            if category != _lm_prev_cat:
-                                if _lm_prev_cat and _lm_prev_cat in _lm_status["categories"]:
-                                    pd = _lm_status["categories"][_lm_prev_cat]
-                                    pd["state"] = "vulnerable" if pd["findings"] > 0 else "safe"
-                                    _ls.write_status(_lm_status, _lm_path)
-                                if category in _lm_status["categories"]:
-                                    _lm_status["categories"][category]["state"] = "testing"
-                                    _ls.write_status(_lm_status, _lm_path)
-                                _lm_prev_cat = category
-                        except Exception:
-                            pass
+
 
                     if not ptext:
                         push({"type": "ok"})
@@ -1043,36 +772,14 @@ def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
                                   "risk":     scored["risk_score"],
                                   "matched":  scored["matched_text"]})
 
-                    # -- Live map: per-payload counts --
-                    if _lm_status:
-                        try:
-                            _lm_status["overall_progress"]["tested"] = total_tested
-                            if category in _lm_status["categories"]:
-                                _lm_status["categories"][category]["tested"] += 1
-                                if raw_findings:
-                                    _lm_status["categories"][category]["findings"] += len(raw_findings)
-                                else:
-                                    _lm_status["categories"][category]["safe_count"] = _lm_status["categories"][category].get("safe_count", 0) + 1
-                            _ls.write_status(_lm_status, _lm_path)
-                        except Exception:
-                            pass
+
 
                     if self.rate_limit_seconds > 0 and idx < len(payload_list):
                         time.sleep(self.rate_limit_seconds)
 
                 summary = aggregate_summary(all_findings)
 
-                # -- Live map: finalise --
-                if _lm_status:
-                    try:
-                        if _lm_prev_cat and _lm_prev_cat in _lm_status["categories"]:
-                            last = _lm_status["categories"][_lm_prev_cat]
-                            last["state"] = "vulnerable" if last["findings"] > 0 else "safe"
-                        _lm_status["overall_progress"]["tested"] = total_tested
-                        _lm_status["finished"] = True
-                        _ls.write_status(_lm_status, _lm_path)
-                    except Exception:
-                        pass
+
 
                 result = {
                     "target_url":            url + endpoint,

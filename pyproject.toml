@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-scanner"
-version = "0.2.0"
+version = "0.3.0"
 description = "Black-box security scanner for LLM chatbots — OWASP LLM Top 10 red-teaming CLI"
 readme = "README.md"
 license = { text = "MIT" }
@@ -58,14 +58,13 @@ llm-scanner-config = "config_cmd:main"
 py-modules = ["cli", "web_app", "config_cmd"]
 
 [tool.setuptools.packages.find]
-include = ["core*", "detectors*", "reporters*", "scripts*"]
+include = ["core*", "detectors*", "reporters*", "scripts*", "payloads*"]
 
 [tool.setuptools.package-data]
 "*" = [
     "payloads/*.yaml",
     "templates/*.html",
     "templates/*.j2",
-    "attack_map.html",
 ]
 
 # ─── Ruff linter config ───────────────────────────────────────────────────────

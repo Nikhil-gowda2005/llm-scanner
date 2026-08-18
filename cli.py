@@ -20,6 +20,7 @@ from colorama import Fore, Style
 from core.target import Target
 from core.engine import ScanEngine
 from detectors.llm_judge import GroqJudge
+from detectors.multi_judge import build_multi_judge_panel
 from config_cmd import load_saved_config
 from reporters.json_report import generate_json_report
 from reporters.html_report import generate_html_report
@@ -29,7 +30,7 @@ colorama.init(autoreset=True)
 # ──────────────────────────────────────────────────────────────────────────────
 # Version
 # ──────────────────────────────────────────────────────────────────────────────
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -96,10 +97,15 @@ def _print_welcome() -> None:
     payload_dir    = os.path.join(os.path.dirname(__file__), "payloads")
     spinner_frames = ["|", "/", "-", "\\"]
     labels = {
-        "jailbreak":        "Jailbreak",
-        "prompt_injection":  "Prompt Injection",
-        "data_leakage":      "Sensitive Data Leakage",
-        "output_handling":   "Insecure Output Handling",
+        "data_leakage":           "Sensitive Data Leakage",
+        "excessive_agency":       "Excessive Agency",
+        "insecure_plugin_design": "Insecure Plugin Design",
+        "jailbreak":              "Jailbreak",
+        "model_dos":              "Model Denial of Service",
+        "model_theft_leak":       "Model Theft / IP Leakage",
+        "output_handling":        "Insecure Output Handling",
+        "overreliance":           "Overreliance",
+        "prompt_injection":       "Prompt Injection",
     }
 
     if os.path.isdir(payload_dir):
@@ -134,6 +140,7 @@ def _print_welcome() -> None:
     cfg         = load_saved_config()
     chatbot_key = cfg.get("llm_scanner_api_key", "")
     groq_key    = cfg.get("groq_api_key", "")
+    google_key  = cfg.get("google_ai_api_key", "")
 
     _section("CONFIGURATION")
     print(Fore.CYAN + _bar())
@@ -151,7 +158,7 @@ def _print_welcome() -> None:
 
     if groq_key:
         print(Fore.GREEN  + _row("Groq key  (LLM Judge)",
-                                  f"{_mask(groq_key)}  [ENABLED - GPT-OSS 120B]",
+                                  f"{_mask(groq_key)}  [ENABLED - 120B+27B+20B]",
                                   label_w=24, value_w=44))
     else:
         print(Fore.YELLOW + _row("Groq key  (LLM Judge)",
@@ -211,13 +218,13 @@ def _print_welcome() -> None:
     _section("COMMANDS")
     print(Fore.CYAN + _bar())
     commands = [
-        ("llm-scanner --help",              "Full options reference"),
-        ("llm-scanner --version",           "Show version"),
-        ("llm-scanner --target URL",        "Run a security scan"),
-        ("llm-scanner-config set-apikey",   "Save chatbot API key"),
-        ("llm-scanner-config set-groq-key", "Save Groq key (LLM Judge)"),
-        ("llm-scanner-config show",         "View saved configuration"),
-        ("llm-scanner-web",                 "Open web dashboard  (port 8080)"),
+        ("llm-scanner --help",                 "Full options reference"),
+        ("llm-scanner --version",              "Show version"),
+        ("llm-scanner --target URL",           "Run a security scan"),
+        ("llm-scanner-config set-apikey",      "Save chatbot API key"),
+        ("llm-scanner-config set-groq-key",    "Save Groq key (LLM Judge)"),
+        ("llm-scanner-config show",            "View saved configuration"),
+        ("llm-scanner-web",                    "Open web dashboard (port 8080)"),
     ]
     for cmd, desc in commands:
         print(Fore.WHITE + _row(cmd, desc, label_w=38, value_w=30))
@@ -351,7 +358,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Use 'Authorization' for Bearer token APIs."
         ),
     )
-    # ── LLM Judge (Groq secondary detection) ────────────────────────────────
+    # ── LLM Judge (multi-judge panel + legacy single-judge) ─────────────────
     parser.add_argument(
         "--groq-key",
         required=False,
@@ -359,22 +366,34 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="groq_key",
         metavar="KEY",
         help=(
-            "Groq API key for the LLM-as-a-Judge secondary detection layer. "
+            "Groq API key for the LLM Judge panel (GPT-OSS 120B). "
             "Get a free key at console.groq.com. "
-            "Can also be set via the GROQ_API_KEY environment variable. "
-            "If not provided, the judge is disabled and only heuristics run."
+            "Can also be set via the GROQ_API_KEY environment variable."
+        ),
+    )
+    parser.add_argument(
+        "--google-ai-key",
+        required=False,
+        default=os.environ.get("GOOGLE_AI_API_KEY", ""),
+        dest="google_ai_key",
+        metavar="KEY",
+        help=(
+            "(Unused) Google AI Studio API key — kept for backward compatibility. "
+            "All judges now use Groq GPT-OSS 120B."
         ),
     )
     parser.add_argument(
         "--judge-mode",
-        choices=["fallback", "always", "off"],
-        default="fallback",
+        choices=["consensus", "full", "fallback", "legacy", "always", "off"],
+        default="consensus",
         dest="judge_mode",
         help=(
             "LLM judge invocation mode. "
-            "'fallback' (default): judge only when heuristic finds nothing or has low confidence. "
-            "'always': judge every payload (most thorough, uses more Groq quota). "
-            "'off': disable judge entirely."
+            "'consensus' (default): 3-judge panel, superior judge on disagreement. "
+            "'full': 3-judge panel + superior on every payload. "
+            "'fallback': 3-judge panel, invoked only when heuristic confidence is low. "
+            "'legacy'/'always': single Groq judge (backward-compatible). "
+            "'off': disable all judges."
         ),
     )
     parser.add_argument(
@@ -383,7 +402,7 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="judge_model",
         metavar="MODEL",
         help=(
-            "Groq model ID to use as the AI judge. "
+            "Groq model ID to use for the legacy single-judge mode. "
             "Default: openai/gpt-oss-120b. "
             "See console.groq.com/docs/models for available models."
         ),
@@ -395,7 +414,7 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="judge_threshold",
         metavar="FLOAT",
         help=(
-            "Minimum heuristic confidence (0.0–1.0) to skip the LLM judge. "
+            "Minimum heuristic confidence (0.0-1.0) to skip the LLM judge. "
             "If all heuristic findings are below this threshold, the judge is "
             "invoked for a second opinion. Default: 0.7."
         ),
@@ -410,23 +429,7 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="open_browser",
         help="Disable automatically opening the HTML report in the default browser.",
     )
-    parser.add_argument(
-        "--sound",
-        action="store_true",
-        default=False,
-        dest="sound",
-        help="Enable optional audio beeps during the scan (Windows only). Default: off.",
-    )
-    parser.add_argument(
-        "--live-map",
-        action="store_true",
-        default=False,
-        dest="live_map",
-        help=(
-            "Write reports/live_status.json during the scan so attack_map.html "
-            "can display a live radial attack map. Default: off."
-        ),
-    )
+
 
     return parser
 
@@ -604,14 +607,18 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Groq API key for LLM Judge (optional — judge disabled if not found)
+    # Groq API key (optional — judge disabled if not found)
     if not args.groq_key:
         args.groq_key = _saved.get("groq_api_key", "")
-    if args.groq_key and args.judge_mode != "off":
-        print(
-            Fore.CYAN
-            + "[INFO]  Groq API key loaded from saved config — LLM Judge enabled."
-        )
+        if args.groq_key and args.judge_mode != "off":
+            print(
+                Fore.CYAN
+                + "[INFO]  Groq API key loaded from saved config — Groq judges enabled."
+            )
+
+    # Google AI API key (unused — kept for backward compat)
+    if not args.google_ai_key:
+        args.google_ai_key = _saved.get("google_ai_api_key", "")
 
     # ── Parse categories ────────────────────────────────────────────────
     categories = None
@@ -631,27 +638,20 @@ def main() -> None:
     print(Fore.CYAN + f"[CONFIG] Message field   : {args.message_field}")
     print(Fore.CYAN + f"[CONFIG] Auth header     : {args.auth_header}")
     print(Fore.CYAN + f"[CONFIG] Open browser    : {args.open_browser}")
-    print(Fore.CYAN + f"[CONFIG] Sound effects   : {args.sound}")
-    print(Fore.CYAN + f"[CONFIG] Live map        : {args.live_map}")
-    if args.groq_key:
-        print(Fore.CYAN + f"[CONFIG] LLM Judge       : {args.judge_model} | mode={args.judge_mode} | threshold={args.judge_threshold}")
+    if args.judge_mode == "off":
+        print(Fore.CYAN + "[CONFIG] Judge           : off")
+    elif args.judge_mode in ("legacy", "always") and args.groq_key:
+        print(Fore.CYAN + f"[CONFIG] Judge           : legacy ({args.judge_model}) | threshold={args.judge_threshold}")
     else:
-        print(Fore.CYAN + "[CONFIG] LLM Judge       : disabled (no --groq-key provided)")
+        judges_active = []
+        if args.groq_key:
+            judges_active += ["J1 GPT-OSS 120B", "J2 GPT-OSS 27B", "J3 GPT-OSS 20B", "Superior 120B"]
+        if judges_active:
+            print(Fore.CYAN + f"[CONFIG] Multi-judge     : {', '.join(judges_active)} | mode={args.judge_mode}")
+        else:
+            print(Fore.YELLOW + "[CONFIG] Judge           : no API keys — disabled (heuristics only)")
     print()
-    # -- Live map: instruct user to open attack_map.html before scan starts --
-    if args.live_map:
-        map_abs = os.path.abspath("attack_map.html")
-        print(Fore.CYAN + Style.BRIGHT + "[LIVE MAP] " + Fore.YELLOW
-              + "Open attack_map.html in your browser to watch the live attack map.")
-        print(Fore.CYAN + f"           Path: file:///{map_abs.replace(os.sep, '/')}")
-        print(Fore.CYAN + "           (The page polls reports/live_status.json every second.)")
-        print()
-        try:
-            input(Fore.GREEN + Style.BRIGHT
-                  + "   Press Enter when you have the map open, to start the scan... ")
-        except (EOFError, KeyboardInterrupt):
-            pass
-        print()
+
 
     try:
         # -- Initialise subsystems --
@@ -664,28 +664,52 @@ def main() -> None:
             auth_header=args.auth_header,
         )
 
-        # Build LLM judge if Groq key provided and judge not disabled
-        llm_judge = None
-        if args.groq_key and args.judge_mode != "off":
-            llm_judge = GroqJudge(
-                api_key=args.groq_key,
-                model=args.judge_model,
-                threshold=args.judge_threshold,
+        # -- Build judge subsystem --
+        multi_judge = None
+        llm_judge   = None
+        judge_mode  = args.judge_mode
+
+        if judge_mode == "legacy" or (judge_mode in ("always",) and args.groq_key):
+            # Legacy single-judge path (backward compatible)
+            if args.groq_key:
+                threshold = getattr(args, 'judge_threshold', 0.7)
+                llm_judge = GroqJudge(
+                    api_key=args.groq_key,
+                    model=getattr(args, 'judge_model', 'openai/gpt-oss-120b'),
+                    threshold=threshold,
+                )
+                print(
+                    Fore.CYAN
+                    + f"[INFO]  Legacy judge: {llm_judge.model} (mode: {judge_mode})"
+                )
+        elif judge_mode not in ("off",):
+            # Multi-judge path (consensus / full / fallback)
+            multi_judge = build_multi_judge_panel(
+                groq_key=args.groq_key,
+                google_ai_key=args.google_ai_key,
+                mode=judge_mode,
+                threshold=getattr(args, 'judge_threshold', 0.7),
             )
-            print(
-                Fore.CYAN
-                + f"[INFO]  LLM Judge ready: {args.judge_model} (mode: {args.judge_mode})"
-            )
+            if multi_judge:
+                panel_size = len(multi_judge.judges)
+                has_sup    = multi_judge.superior and multi_judge.superior.is_available()
+                print(
+                    Fore.CYAN
+                    + f"[INFO]  Multi-judge panel: {panel_size} judges | "
+                    + f"Superior: {'enabled' if has_sup else 'disabled'} | "
+                    + f"mode: {judge_mode}"
+                )
+            else:
+                print(Fore.YELLOW + "[WARN]  No API keys found — judge disabled.")
 
         engine = ScanEngine(
             target=target,
             payload_dir=os.path.join(os.path.dirname(__file__), "payloads"),
             categories=categories,
             rate_limit_seconds=args.rate_limit,
-            sound_enabled=args.sound,
-            live_map_enabled=args.live_map,
             llm_judge=llm_judge,
-            judge_mode=args.judge_mode,
+            judge_mode=judge_mode,
+            multi_judge=multi_judge,
         )
 
         # ── Run the scan ─────────────────────────────────────────────────

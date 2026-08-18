@@ -1,7 +1,7 @@
 include payloads/*.yaml
 include templates/*.html
 include templates/*.j2
-include attack_map.html
+
 include README.md
 include LICENSE
 recursive-include core *.py

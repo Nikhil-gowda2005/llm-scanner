@@ -28,9 +28,10 @@ from colorama import Fore, Style
 from core.target import Target
 from detectors.heuristic import detect_vulnerabilities
 from detectors.scorer import score_finding, aggregate_summary
+from detectors.multi_judge import MultiJudgePanel
 from detectors.llm_judge import GroqJudge
-from core import sound as _sound
-from core import live_status as _ls
+
+
 
 # Initialise colorama once at module load time.
 # autoreset=True means we never need to manually call Style.RESET_ALL after each print.
@@ -64,10 +65,9 @@ class ScanEngine:
         payload_dir: str = "payloads",
         categories: Optional[List[str]] = None,
         rate_limit_seconds: float = 0.5,
-        sound_enabled: bool = False,
-        live_map_enabled: bool = False,
         llm_judge: Optional[GroqJudge] = None,
         judge_mode: str = "fallback",
+        multi_judge: Optional[MultiJudgePanel] = None,
     ):
         """
         Initialise the ScanEngine.
@@ -79,23 +79,18 @@ class ScanEngine:
             categories (list, optional):  List of payload file name stems to include.
                                           Pass None to include all YAML files.
             rate_limit_seconds (float):   Inter-request delay in seconds. Defaults to 0.5.
-            sound_enabled (bool):         If True, play audio beeps during the scan to
-                                          signal safe/vulnerable/critical results.
-                                          Defaults to False (no sound). Pass --sound via
-                                          the CLI to enable. Requires Windows + audio hw.
-            live_map_enabled (bool):      If True, write reports/live_status.json after
-                                          each payload so attack_map.html can poll it.
-                                          Defaults to False. Pass --live-map via the CLI.
+            multi_judge (MultiJudgePanel, optional): If set, overrides llm_judge and
+                                          runs the full 3-judge + superior-judge pipeline.
+                                          When None and llm_judge is set, the legacy
+                                          single-judge path is used. Defaults to None.
         """
         self.target = target
         self.payload_dir = payload_dir
         self.categories = [c.lower().strip() for c in categories] if categories else None
         self.rate_limit_seconds = rate_limit_seconds
-        self.sound_enabled = sound_enabled
-        _sound.SOUND_ENABLED = sound_enabled
-        self.live_map_enabled = live_map_enabled
-        self.llm_judge = llm_judge   # Optional[GroqJudge] — None means judge disabled
-        self.judge_mode = judge_mode  # "fallback" | "always" | "off"
+        self.llm_judge = llm_judge   # Optional[GroqJudge] -- legacy single-judge
+        self.judge_mode = judge_mode  # "fallback" | "always" | "off" | "consensus" | "full" | "legacy"
+        self.multi_judge = multi_judge  # Optional[MultiJudgePanel] -- new multi-judge pipeline
 
     # ------------------------------------------------------------------
     # Payload loading
@@ -254,36 +249,7 @@ class ScanEngine:
         all_findings: List[dict] = []
         total_tested = 0
 
-        # ----------------------------------------------------------------
-        # Live Attack Map: build initial status and pre-count per-category
-        # totals so the map can show accurate progress from the start.
-        # ----------------------------------------------------------------
-        _lm_status: Dict[str, Any] = {}
-        _lm_path = "reports/live_status.json"
-        if self.live_map_enabled:
-            try:
-                # Collect ordered unique categories and per-category totals
-                _cat_order: List[str] = []
-                _cat_totals: Dict[str, int] = {}
-                for _cat, _pl in payload_list:
-                    if _cat not in _cat_totals:
-                        _cat_order.append(_cat)
-                        _cat_totals[_cat] = 0
-                    _cat_totals[_cat] += 1
-                _lm_status = _ls.init_status(
-                    categories=_cat_order,
-                    target_url=self.target.base_url + self.target.endpoint,
-                )
-                # Fill in per-category totals and overall total
-                for _cat in _cat_order:
-                    _lm_status["categories"][_cat]["total"] = _cat_totals[_cat]
-                _lm_status["overall_progress"]["total"] = len(payload_list)
-                _ls.write_status(_lm_status, _lm_path)
-            except Exception:
-                pass
 
-        # Track which category we are currently inside (for state transitions)
-        _lm_prev_category: Optional[str] = None
 
         # ----------------------------------------------------------------
         # Step 2-5: Iterate through each payload
@@ -305,24 +271,6 @@ class ScanEngine:
                 + f"          Category : {category}"
             )
 
-            # -- Live map: detect category transitions --
-            if self.live_map_enabled and _lm_status:
-                try:
-                    if category != _lm_prev_category:
-                        # Finalise previous category state (if any)
-                        if _lm_prev_category and _lm_prev_category in _lm_status["categories"]:
-                            prev_cat_data = _lm_status["categories"][_lm_prev_category]
-                            prev_cat_data["state"] = (
-                                "vulnerable" if prev_cat_data["findings"] > 0 else "safe"
-                            )
-                            _ls.write_status(_lm_status, _lm_path)
-                        # Mark new category as testing
-                        if category in _lm_status["categories"]:
-                            _lm_status["categories"][category]["state"] = "testing"
-                            _ls.write_status(_lm_status, _lm_path)
-                        _lm_prev_category = category
-                except Exception:
-                    pass
 
             # -- Guard: skip empty prompts --
             if not prompt_text:
@@ -371,9 +319,108 @@ class ScanEngine:
             elapsed_seconds = response.get("elapsed_seconds")
             raw_findings = detect_vulnerabilities(payload, reply_text, elapsed_seconds)
 
-            # -- Step 4b: LLM Judge (Layer 2, secondary / fallback) --
+            # -- Step 4b: LLM Judge(s) — Layer 2 --
+            # Priority: multi_judge (new) > llm_judge (legacy) > skip
             judge_result = None
-            if self.llm_judge and self.judge_mode != "off":
+            multi_judge_data = None
+
+            if self.multi_judge and self.judge_mode != "off":
+                # ---- NEW: Multi-judge evaluation pipeline ----
+                _run_panel = self.multi_judge.should_invoke(raw_findings)
+                if _run_panel:
+                    print(
+                        Fore.CYAN
+                        + f"    [MULTI-JUDGE] Invoking 3-judge panel "
+                        + f"(mode: {self.judge_mode})..."
+                    )
+                    mj_result = self.multi_judge.evaluate(
+                        attack_prompt=prompt_text,
+                        chatbot_response=reply_text,
+                        category=category,
+                    )
+                    multi_judge_data = mj_result
+                    consensus = mj_result.get("consensus", {})
+                    val_status = mj_result.get("validation_status", "INCONCLUSIVE")
+
+                    # Print individual judge results
+                    for ev in mj_result.get("judge_evaluations", []):
+                        j_label = ev.get("judge", "?")
+                        j_model = ev.get("model", "?")
+                        j_verdict = ev.get("verdict", "SAFE")
+                        j_conf = ev.get("confidence", 0.0)
+                        j_status = ev.get("status", "unavailable")
+                        if j_status != "success":
+                            print(
+                                Fore.YELLOW
+                                + f"    [{j_label.upper()}] {j_model}: UNAVAILABLE "
+                                + f"(error: {ev.get('error', 'unknown')})"
+                            )
+                        elif j_verdict == "VULNERABLE":
+                            print(
+                                Fore.MAGENTA + Style.BRIGHT
+                                + f"    [{j_label.upper()}] {j_model}: VULNERABLE "
+                                + f"(confidence: {j_conf:.2f})"
+                            )
+                        else:
+                            print(
+                                Fore.CYAN
+                                + f"    [{j_label.upper()}] {j_model}: SAFE "
+                                + f"(confidence: {j_conf:.2f})"
+                            )
+
+                    # Print superior judge result if invoked
+                    sup = mj_result.get("superior_judge", {})
+                    if sup.get("invoked"):
+                        sup_verdict = sup.get("final_verdict", "SAFE")
+                        sup_conf = sup.get("confidence", 0.0)
+                        sup_status_str = sup.get("status", "unavailable")
+                        if sup_status_str == "success":
+                            color = Fore.RED + Style.BRIGHT if sup_verdict == "VULNERABLE" else Fore.CYAN
+                            print(
+                                color
+                                + f"    [SUPERIOR] {sup.get('model', '?')}: "
+                                + f"{sup_verdict} -> {val_status} "
+                                + f"(confidence: {sup_conf:.2f})"
+                            )
+                            if sup.get("reason"):
+                                print(Fore.MAGENTA + f"               Reason: \"{sup['reason']}\"")
+                        else:
+                            print(
+                                Fore.YELLOW
+                                + f"    [SUPERIOR] Unavailable: {sup.get('error', 'unknown')}"
+                            )
+
+                    # Synthesise raw finding from multi-judge result if VULNERABLE
+                    if mj_result.get("verdict") == "VULNERABLE" and val_status != "FALSE_POSITIVE":
+                        judge_finding = {
+                            "payload_id":    payload.get("id", "UNKNOWN"),
+                            "payload_name":  payload.get("name", "Unknown"),
+                            "detected_tag":  mj_result.get("detected_category", category),
+                            "matched_text":  mj_result.get("reason", "")[:150],
+                            "confidence":    mj_result.get("confidence", 0.5),
+                            "source":        "multi_judge",
+                            "multi_judge":   mj_result,
+                        }
+                        raw_findings.append(judge_finding)
+
+                    # Print consensus summary
+                    print(
+                        Fore.CYAN
+                        + f"    [PANEL] Consensus: "
+                        + Fore.RED   + f"{consensus.get('vulnerable', 0)} VULNERABLE  "
+                        + Fore.GREEN + f"{consensus.get('safe', 0)} SAFE  "
+                        + Fore.YELLOW + f"{consensus.get('unavailable', 0)} UNAVAILABLE"
+                    )
+                    val_color = {
+                        "CONFIRMED":    Fore.RED + Style.BRIGHT,
+                        "POTENTIAL":    Fore.YELLOW,
+                        "FALSE_POSITIVE": Fore.GREEN,
+                        "INCONCLUSIVE": Fore.CYAN,
+                    }.get(val_status, Fore.CYAN)
+                    print(val_color + f"    [VALIDATION] {val_status}")
+
+            elif self.llm_judge and self.judge_mode not in ("off", "legacy"):
+                # ---- LEGACY: Single-judge evaluation (backward compatible) ----
                 _run_judge = (
                     self.judge_mode == "always"
                     or self.llm_judge.should_judge(raw_findings)
@@ -392,7 +439,6 @@ class ScanEngine:
                         )
                         judge_result = None
                     elif judge_result["verdict"] == "VULNERABLE":
-                        # Judge found something — synthesise a finding
                         judge_finding = {
                             "payload_id":   payload.get("id", "UNKNOWN"),
                             "payload_name": payload.get("name", "Unknown"),
@@ -425,12 +471,7 @@ class ScanEngine:
                     Fore.GREEN
                     + "    [OK]   No vulnerability detected."
                 )
-                # -- Optional sound: soft high-pitched blip for safe result --
-                if self.sound_enabled:
-                    try:
-                        _sound.play_safe_sound()
-                    except Exception:
-                        pass
+
             else:
                 # -- Step 5: Score each raw finding --
                 scored_findings_this_payload: List[dict] = []
@@ -456,32 +497,9 @@ class ScanEngine:
                         + f"                Matched text : \"{matched}\""
                     )
 
-                # -- Optional sound: alert tone based on highest severity --
-                if self.sound_enabled:
-                    try:
-                        severities = [
-                            f["severity"].lower()
-                            for f in scored_findings_this_payload
-                        ]
-                        if "critical" in severities:
-                            _sound.play_critical_sound()
-                        else:
-                            _sound.play_vulnerable_sound()
-                    except Exception:
-                        pass
 
-            # -- Live map: update per-payload and per-category counts --
-            if self.live_map_enabled and _lm_status:
-                try:
-                    _lm_status["overall_progress"]["tested"] = total_tested
-                    if category in _lm_status["categories"]:
-                        _lm_status["categories"][category]["tested"] += 1
-                        # raw_findings is always defined after detect_vulnerabilities()
-                        if raw_findings:
-                            _lm_status["categories"][category]["findings"] += len(raw_findings)
-                    _ls.write_status(_lm_status, _lm_path)
-                except Exception:
-                    pass
+
+
 
             print()
 
@@ -527,17 +545,7 @@ class ScanEngine:
         print(Fore.CYAN + Style.BRIGHT + "=" * 60)
         print()
 
-        # -- Live map: finalise last category + mark scan finished --
-        if self.live_map_enabled and _lm_status:
-            try:
-                if _lm_prev_category and _lm_prev_category in _lm_status["categories"]:
-                    last = _lm_status["categories"][_lm_prev_category]
-                    last["state"] = "vulnerable" if last["findings"] > 0 else "safe"
-                _lm_status["overall_progress"]["tested"] = total_tested
-                _lm_status["finished"] = True
-                _ls.write_status(_lm_status, _lm_path)
-            except Exception:
-                pass
+
 
         # ----------------------------------------------------------------
         # Step 7: Return structured scan result

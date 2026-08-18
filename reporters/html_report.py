@@ -544,6 +544,141 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* ── Validation Status Badges ────────────────────────────────── */
+    .vbadge {
+      display: inline-flex; align-items: center; gap: 0.25rem;
+      padding: 0.18rem 0.6rem;
+      border-radius: 99px;
+      font-size: 0.62rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      white-space: nowrap;
+    }
+    .vbadge-CONFIRMED    { background:rgba(239,68,68,0.15);  color:#f87171; border:1px solid rgba(239,68,68,0.35); }
+    .vbadge-POTENTIAL    { background:rgba(249,115,22,0.15); color:#fb923c; border:1px solid rgba(249,115,22,0.35); }
+    .vbadge-FALSE_POSITIVE{ background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.35); }
+    .vbadge-INCONCLUSIVE { background:rgba(99,179,237,0.12); color:#63b3ed; border:1px solid rgba(99,179,237,0.3); }
+    .vbadge-HEURISTIC    { background:rgba(159,122,234,0.12);color:#a78bfa; border:1px solid rgba(159,122,234,0.3); }
+
+    /* ── Validation Summary Strip ────────────────────────────────── */
+    .val-strip {
+      display: flex; flex-wrap: wrap; gap: 0.75rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem 1.4rem;
+      margin-top: 0.5rem;
+      align-items: center;
+    }
+    .val-strip-label {
+      font-size: 0.62rem; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--text-muted); margin-right: 0.5rem;
+    }
+    .val-item {
+      display: flex; align-items: center; gap: 0.4rem;
+      font-size: 0.78rem; font-weight: 700;
+    }
+    .val-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .val-dot-CONFIRMED    { background: #f87171; }
+    .val-dot-POTENTIAL    { background: #fb923c; }
+    .val-dot-FALSE_POSITIVE { background: #4ade80; }
+    .val-dot-INCONCLUSIVE { background: #63b3ed; }
+
+    /* ── Judge Panel (expandable per-finding) ────────────────────── */
+    .judge-toggle {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      background: rgba(99,179,237,0.08);
+      border: 1px solid rgba(99,179,237,0.2);
+      border-radius: 8px;
+      padding: 0.2rem 0.6rem;
+      font-size: 0.68rem; font-weight: 700;
+      color: var(--accent-cyan);
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s, box-shadow 0.15s;
+      white-space: nowrap;
+    }
+    .judge-toggle:hover { background:rgba(99,179,237,0.16); box-shadow:0 2px 8px rgba(99,179,237,0.15); }
+    .judge-panel {
+      display: none;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.1rem 1.3rem;
+      margin-top: 0.6rem;
+      animation: fadeSlide 0.2s ease;
+    }
+    .judge-panel.open { display: block; }
+    @keyframes fadeSlide {
+      from { opacity:0; transform:translateY(-6px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+    .judge-cards-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.8rem;
+      margin-bottom: 0.9rem;
+    }
+    .judge-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .judge-card::before {
+      content: ''; position: absolute;
+      top: 0; left: 0; right: 0; height: 3px;
+      border-radius: 10px 10px 0 0;
+    }
+    .judge-card.vuln::before { background: linear-gradient(90deg,#ef4444,#f97316); }
+    .judge-card.safe::before { background: linear-gradient(90deg,#22c55e,#06b6d4); }
+    .judge-card.unavail::before { background: rgba(107,114,128,0.5); }
+    .judge-card-header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      margin-bottom: 0.5rem;
+    }
+    .judge-card-name { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+    .judge-card-model { font-size: 0.72rem; font-weight: 600; color: var(--accent-cyan); margin-top: 0.1rem; }
+    .judge-verdict {
+      font-size: 0.82rem; font-weight: 800;
+      padding: 0.1rem 0.55rem;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .judge-verdict.VULNERABLE { background:rgba(239,68,68,0.15); color:#f87171; }
+    .judge-verdict.SAFE       { background:rgba(34,197,94,0.15);  color:#4ade80; }
+    .judge-verdict.UNAVAIL    { background:rgba(107,114,128,0.12);color:#9ca3af; }
+    .judge-conf-row { display:flex; align-items:center; gap:0.5rem; margin:0.45rem 0 0.5rem; }
+    .judge-conf-label { font-size:0.65rem; color:var(--text-muted); font-weight:600; }
+    .judge-reason { font-size:0.75rem; color:var(--text-secondary); line-height:1.5; border-top:1px solid var(--border); padding-top:0.45rem; }
+
+    /* ── Superior Judge Block ────────────────────────────────────── */
+    .superior-block {
+      background: var(--bg-card);
+      border: 1px solid rgba(99,179,237,0.25);
+      border-left: 3px solid var(--accent-cyan);
+      border-radius: 10px;
+      padding: 0.9rem 1.1rem;
+    }
+    .superior-header {
+      display: flex; align-items: center; gap: 0.8rem;
+      margin-bottom: 0.5rem; flex-wrap: wrap;
+    }
+    .superior-label { font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.1em; color:var(--accent-cyan); }
+    .superior-model { font-size:0.72rem; color:var(--text-secondary); }
+    .superior-not-invoked { font-size:0.78rem; color:var(--text-muted); font-style:italic; }
+    .superior-reason { font-size:0.77rem; color:var(--text-secondary); line-height:1.5; margin-top:0.4rem; }
+    .superior-evidence {
+      font-size:0.75rem; color:var(--text-muted);
+      background:var(--mono-bg); border:1px solid var(--mono-border);
+      border-radius:6px; padding:0.4rem 0.7rem; margin-top:0.4rem;
+      font-family:'JetBrains Mono',monospace; line-height:1.6;
+    }
   </style>
 </head>
 <body>
@@ -639,6 +774,22 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- Multi-Judge Validation Summary (shown only when any multi-judge data present) -->
+  {% set vs = summary.get('validation_summary', {}) %}
+  {% if vs and (vs.get('CONFIRMED',0) + vs.get('POTENTIAL',0) + vs.get('FALSE_POSITIVE',0) + vs.get('INCONCLUSIVE',0)) > 0 %}
+  <div class="section-label">Multi-Judge Validation Summary</div>
+  <div class="val-strip">
+    <span class="val-strip-label">AI Panel Verdicts</span>
+    {% for key, label, clr in [('CONFIRMED','Confirmed','#f87171'),('POTENTIAL','Potential','#fb923c'),('FALSE_POSITIVE','False Positive','#4ade80'),('INCONCLUSIVE','Inconclusive','#63b3ed')] %}
+    <div class="val-item">
+      <div class="val-dot" style="background:{{ clr }}"></div>
+      <span style="color:{{ clr }};font-weight:800">{{ vs.get(key, 0) }}</span>
+      <span style="color:var(--text-muted);font-size:0.75rem">{{ label }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <!-- Top Finding -->
   {% if summary.highest_risk_finding %}
   {% set top = summary.highest_risk_finding %}
@@ -688,14 +839,18 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
           <th>Severity</th>
           <th>Risk Score</th>
           <th>Confidence</th>
+          <th>Validation</th>
           <th>Detected Tag</th>
           <th>Matched Text</th>
           <th>Prompt Sent</th>
+          <th>Judge Review</th>
         </tr>
       </thead>
       <tbody>
         {% for f in findings %}
         {% set sev = f.severity | lower %}
+        {% set val_status = f.get('validation_status', '') %}
+        {% set has_judges = f.get('judge_evaluations') %}
         <tr class="row-{{ sev }}">
           <td class="row-num">{{ loop.index }}</td>
           <td><span class="mono">{{ f.id }}</span></td>
@@ -728,10 +883,113 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
               </div>
             </div>
           </td>
+          <td>
+            {% if val_status %}
+            <span class="vbadge vbadge-{{ val_status }}">{{ val_status.replace('_',' ') }}</span>
+            {% else %}
+            <span class="vbadge vbadge-HEURISTIC">Heuristic</span>
+            {% endif %}
+          </td>
           <td><span class="mono">{{ f.detected_tag }}</span></td>
           <td><span class="mono">{{ f.matched_text }}</span></td>
           <td><span class="mono">{{ f.prompt_sent }}</span></td>
+          <td>
+            {% if has_judges %}
+            <span class="judge-toggle" onclick="toggleJudge('jp-{{ loop.index }}', this)">🔍 View Judges ▾</span>
+            {% else %}
+            <span style="color:var(--text-muted);font-size:0.72rem">—</span>
+            {% endif %}
+          </td>
         </tr>
+        {% if has_judges %}
+        <tr id="jp-{{ loop.index }}-row" style="display:none;">
+          <td colspan="12" style="padding:0.6rem 1rem 1rem;">
+            <div class="judge-panel" id="jp-{{ loop.index }}">
+              <div class="judge-cards-row">
+                {% for ev in f.judge_evaluations %}
+                {% set jv = ev.get('verdict','SAFE') %}
+                {% set jst = ev.get('status','unavailable') %}
+                {% set jconf = (ev.get('confidence',0) * 100) | int %}
+                <div class="judge-card {% if jst != 'success' %}unavail{% elif jv == 'VULNERABLE' %}vuln{% else %}safe{% endif %}">
+                  <div class="judge-card-header">
+                    <div>
+                      <div class="judge-card-name">{{ ev.get('judge','?').replace('_',' ') }}</div>
+                      <div class="judge-card-model">{{ ev.get('model','unknown') }}</div>
+                    </div>
+                    {% if jst != 'success' %}
+                    <span class="judge-verdict UNAVAIL">UNAVAILABLE</span>
+                    {% else %}
+                    <span class="judge-verdict {{ jv }}">{{ jv }}</span>
+                    {% endif %}
+                  </div>
+                  {% if jst == 'success' %}
+                  <div class="judge-conf-row">
+                    <span class="judge-conf-label">Confidence</span>
+                    <div class="conf-track" style="width:60px">
+                      <div class="conf-fill" style="width:{{ jconf }}%"></div>
+                    </div>
+                    <span class="conf-pct">{{ jconf }}%</span>
+                  </div>
+                  <div class="judge-reason">{{ ev.get('reason','') }}</div>
+                  {% else %}
+                  <div class="judge-reason" style="color:var(--text-muted)">Error: {{ ev.get('error','unknown') }}</div>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+
+              <!-- Superior Judge block -->
+              {% set sup = f.get('superior_judge', {}) %}
+              <div class="superior-block">
+                <div class="superior-header">
+                  <span class="superior-label">⚖️ Superior Judge</span>
+                  {% if sup.get('invoked') %}
+                  <span class="superior-model">{{ sup.get('model','?') }} via {{ sup.get('provider','?') }}</span>
+                  {% set sv = sup.get('final_verdict','SAFE') %}
+                  {% set svs = sup.get('validation_status','INCONCLUSIVE') %}
+                  <span class="judge-verdict {{ sv }}">{{ sv }}</span>
+                  <span class="vbadge vbadge-{{ svs }}">{{ svs.replace('_',' ') }}</span>
+                  {% set sconf = (sup.get('confidence',0) * 100) | int %}
+                  <div class="conf-wrap">
+                    <span class="conf-pct">{{ sconf }}%</span>
+                    <div class="conf-track">
+                      <div class="conf-fill" style="width:{{ sconf }}%"></div>
+                    </div>
+                  </div>
+                  {% else %}
+                  <span class="superior-not-invoked">Not invoked — judges unanimous</span>
+                  {% endif %}
+                </div>
+                {% if sup.get('invoked') %}
+                {% if sup.get('reason') %}
+                <div class="superior-reason"><strong>Reasoning:</strong> {{ sup.get('reason','') }}</div>
+                {% endif %}
+                {% if sup.get('evidence') %}
+                <div class="superior-evidence">Evidence: {{ sup.get('evidence','') }}</div>
+                {% endif %}
+                {% endif %}
+              </div>
+
+              <!-- Consensus summary -->
+              {% set con = f.get('judge_consensus', {}) %}
+              {% if con %}
+              <div style="display:flex;gap:1rem;margin-top:0.7rem;flex-wrap:wrap;align-items:center;">
+                <span style="font-size:0.62rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Panel consensus</span>
+                <span style="color:#f87171;font-weight:700;font-size:0.8rem">{{ con.get('vulnerable',0) }} VULNERABLE</span>
+                <span style="color:#4ade80;font-weight:700;font-size:0.8rem">{{ con.get('safe',0) }} SAFE</span>
+                {% if con.get('unavailable',0) > 0 %}
+                <span style="color:#9ca3af;font-weight:700;font-size:0.8rem">{{ con.get('unavailable',0) }} UNAVAILABLE</span>
+                {% endif %}
+                {% if f.get('disagreement') %}
+                <span style="color:#fb923c;font-size:0.72rem;font-weight:600">⚡ Disagreement — Superior Judge arbitrated</span>
+                {% endif %}
+              </div>
+              {% endif %}
+
+            </div>
+          </td>
+        </tr>
+        {% endif %}
         {% endfor %}
       </tbody>
     </table>
@@ -781,6 +1039,24 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       setTimeout(() => { bar.style.width = target; }, 120);
     });
   });
+
+  // ── Toggle judge panel per finding ───────────────────────────
+  function toggleJudge(panelId, btn) {
+    const panel = document.getElementById(panelId);
+    const row   = document.getElementById(panelId + '-row');
+    if (!panel || !row) return;
+    const isOpen = panel.classList.contains('open');
+    panel.classList.toggle('open', !isOpen);
+    row.style.display = isOpen ? 'none' : 'table-row';
+    btn.textContent = isOpen ? '🔍 View Judges ▾' : '🔍 Hide Judges ▲';
+    // Animate conf bars inside the newly opened panel
+    if (!isOpen) {
+      panel.querySelectorAll('.conf-fill').forEach(bar => {
+        const w = bar.style.width; bar.style.width = '0%';
+        requestAnimationFrame(() => setTimeout(() => { bar.style.width = w; }, 60));
+      });
+    }
+  }
 </script>
 
 </body>
