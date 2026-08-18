@@ -274,3 +274,62 @@ def aggregate_summary(findings: List[dict]) -> dict:
         "highest_risk_finding": highest,
         "validation_summary":   validation_summary,
     }
+
+
+def aggregate_layer_summaries(findings: List[dict]) -> dict:
+    """
+    Aggregates findings into per-layer summary statistics:
+      - Layer 1 (Heuristics)
+      - Layer 2 (Multi-Judge Panel)
+      - Superior Judge arbitration
+    """
+    l1_count = 0
+    l2_invoked = 0
+    l2_disagreements = 0
+
+    judge_counts = {}
+    superior_summary = {"invoked_count": 0, "verdict_counts": {}}
+
+    for f in findings:
+        h = f.get("heuristic_data", {})
+        if h.get("triggered") or f.get("source") == "heuristic":
+            l1_count += 1
+
+        evals = f.get("judge_evaluations", [])
+        if evals or f.get("multi_judge"):
+            l2_invoked += 1
+
+        if f.get("disagreement"):
+            l2_disagreements += 1
+
+        for ev in evals:
+            j_name = ev.get("judge") or ev.get("model", "Judge")
+            if j_name not in judge_counts:
+                judge_counts[j_name] = {"vulnerable": 0, "safe": 0, "unavailable": 0}
+            v = str(ev.get("verdict", "SAFE")).upper()
+            if v in ("VULNERABLE", "SAFE"):
+                judge_counts[j_name][v.lower()] += 1
+            else:
+                judge_counts[j_name]["unavailable"] += 1
+
+        sup = f.get("superior_judge", {})
+        if sup and sup.get("invoked"):
+            superior_summary["invoked_count"] += 1
+            fv = sup.get("final_verdict", "UNKNOWN")
+            superior_summary["verdict_counts"][fv] = superior_summary["verdict_counts"].get(fv, 0) + 1
+
+    return {
+        "layer_1_heuristics": {
+            "total_detections": l1_count,
+        },
+        "layer_2_multi_judge": {
+            "total_evaluations": l2_invoked,
+            "panel_disagreements": l2_disagreements,
+            "per_judge_breakdown": judge_counts,
+        },
+        "superior_judge": superior_summary,
+        "judges": [
+            {"judge": k, **v} for k, v in judge_counts.items()
+        ],
+    }
+
