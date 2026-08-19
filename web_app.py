@@ -14,23 +14,21 @@ import queue
 import sys
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-# ── Make sure project root is on the path ────────────────────────────────────
+# Make sure project root is on the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.engine import ScanEngine
 from core.target import Target
-
-from reporters.json_report import generate_json_report, generate_groq_report
+from core import live_status as _ls
+from reporters.json_report import generate_json_report
 from reporters.html_report import generate_html_report
 
-# ─────────────────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
-# In-memory store: scan_id → {status, queue, result, json_path, html_path}
 _scan_store: dict = {}
 _store_lock = threading.Lock()
 
@@ -41,480 +39,628 @@ PAYLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "payloads
 # Dashboard HTML (inline — zero external files needed)
 # ─────────────────────────────────────────────────────────────────────────────
 DASHBOARD_HTML = """<!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>LLM Security Scanner — Web Dashboard</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<style>
-/* ── CSS Variables ────────────────────────────────────────────── */
-:root[data-theme="dark"]{
-  --bg:#0b0d17;--bg2:#111322;--bg3:rgba(255,255,255,0.04);
-  --border:rgba(255,255,255,0.08);--border2:rgba(99,179,237,0.25);
-  --text:#e8eaf6;--text2:#8892b0;--text3:#4a5568;
-  --cyan:#63b3ed;--purple:#9f7aea;--red:#f87171;--orange:#fb923c;
-  --yellow:#facc15;--green:#4ade80;
-  --nav:rgba(11,13,23,0.95);--card:rgba(255,255,255,0.04);
-  --input:#1a1f35;--input-border:rgba(255,255,255,0.12);
-  --shadow:0 8px 32px rgba(0,0,0,.5);
-  --terminal:#0a0c14;--terminal-text:#a8ff78;
-  --btn-primary:linear-gradient(135deg,#3b82f6,#6366f1);
-  --btn-danger:linear-gradient(135deg,#ef4444,#b91c1c);
-}
-:root[data-theme="light"]{
-  --bg:#f0f4ff;--bg2:#ffffff;--bg3:#ffffff;
-  --border:#e2e8f0;--border2:#93c5fd;
-  --text:#1e293b;--text2:#475569;--text3:#94a3b8;
-  --cyan:#2563eb;--purple:#7c3aed;--red:#dc2626;--orange:#ea580c;
-  --yellow:#ca8a04;--green:#16a34a;
-  --nav:rgba(255,255,255,0.97);--card:#ffffff;
-  --input:#f8faff;--input-border:#cbd5e1;
-  --shadow:0 8px 32px rgba(0,0,0,.1);
-  --terminal:#1e293b;--terminal-text:#a8ff78;
-  --btn-primary:linear-gradient(135deg,#2563eb,#4f46e5);
-  --btn-danger:linear-gradient(135deg,#dc2626,#991b1b);
-}
+<title>AI-Xray — AI/LLM Application Security Scanner</title>
 
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script src="https://unpkg.com/lucide@latest"></script>
+
+<style>
+/* ============================================================
+   AI-Xray — "light box" design system
+   A radiograph is read on a lit panel: bright clinical exterior,
+   dark backlit film where the actual exposure (the scan) happens.
+   That contrast is the whole idea — quiet everywhere, and then a
+   single glowing "plate" where results are read off the film.
+   ============================================================ */
+:root{
+  /* exterior — light box room */
+  --paper:#f2f4f7;--panel:#ffffff;--sunken:#eaedf2;
+  --ink:#12161d;--ink-soft:#565f6c;--ink-faint:#939ca8;
+  --line:#dde1e8;--line-soft:#e8ebf0;
+  --accent:#0f6e8c;--accent-hover:#0b5a73;--accent-soft:#e6f2f5;
+
+  /* film / backlit panel — where the scan runs */
+  --film:#0b0f16;--film-panel:#10161f;--film-line:#212b38;
+  --film-text:#dbe3ec;--film-text-dim:#7e8ba0;
+  --glow:#5eead4;--glow-dim:rgba(94,234,212,.18);
+
+  /* severity, tuned to read on both paper and film */
+  --high:#c0392b;--high-bg:#fbeae7;--high-glow:#ff7a68;
+  --medium:#a8641a;--medium-bg:#fbf0dc;--medium-glow:#ffc06b;
+  --low:#1f7a5c;--low-bg:#e6f5ee;--low-glow:#6bf0c2;
+
+  --radius-sm:6px;--radius-md:10px;--radius-lg:14px;
+  --shadow:0 1px 2px rgba(16,20,29,.04),0 10px 30px -12px rgba(16,20,29,.12);
+  --ease:cubic-bezier(.4,0,.2,1);
+}
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;}
+}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Inter',sans-serif;font-size:14px;line-height:1.6;
-  background:var(--bg);color:var(--text);transition:background .3s,color .3s;min-height:100vh}
-::selection{background:var(--cyan);color:#fff}
+  background:var(--paper);color:var(--ink);min-height:100vh;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:'Space Grotesk',sans-serif}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* ── Navbar ─────────────────────────────────────────────────── */
-.nav{position:sticky;top:0;z-index:100;background:var(--nav);
-  border-bottom:1px solid var(--border);backdrop-filter:blur(20px);
-  padding:0 2rem;height:60px;display:flex;align-items:center;
-  justify-content:space-between;box-shadow:var(--shadow);transition:background .3s}
-.nav-brand{display:flex;align-items:center;gap:.6rem;font-weight:800;font-size:1.05rem;
-  color:var(--text);letter-spacing:-.02em}
-.shield{width:34px;height:34px;background:linear-gradient(135deg,var(--cyan),var(--purple));
-  border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;
-  box-shadow:0 0 16px rgba(99,179,237,.4)}
-.nav-right{display:flex;align-items:center;gap:1rem}
-.nav-badge{font-size:.72rem;font-weight:600;color:var(--text2);background:var(--bg3);
-  border:1px solid var(--border);border-radius:99px;padding:.25rem .8rem}
-.toggle{display:flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none}
-.toggle-icon{font-size:.9rem;color:var(--text2)}
-.toggle-track{width:44px;height:24px;background:var(--input);border-radius:99px;
-  border:1px solid var(--border);position:relative;cursor:pointer;transition:background .3s}
-.toggle-knob{position:absolute;top:3px;left:3px;width:16px;height:16px;
-  background:var(--cyan);border-radius:50%;transition:transform .3s cubic-bezier(.68,-.55,.27,1.55);
-  box-shadow:0 0 8px rgba(99,179,237,.6)}
-[data-theme="light"] .toggle-knob{transform:translateX(20px)}
+.nav{background:var(--panel);border-bottom:1px solid var(--line);
+  padding:0 28px;height:64px;display:flex;align-items:center;justify-content:space-between;
+  position:sticky;top:0;z-index:50}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-mark{width:38px;height:38px;flex-shrink:0;border-radius:var(--radius-sm);
+  background:var(--film);color:var(--glow);display:flex;align-items:center;justify-content:center;
+  position:relative;overflow:hidden;box-shadow:inset 0 0 0 1px var(--film-line)}
+.brand-mark svg{position:relative;z-index:1}
+.brand-mark::after{content:'';position:absolute;left:-100%;top:0;bottom:0;width:60%;
+  background:linear-gradient(90deg,transparent,rgba(94,234,212,.35),transparent);
+  animation:sweep 3.6s ease-in-out infinite}
+@keyframes sweep{0%{left:-60%}55%{left:130%}100%{left:130%}}
+.brand-text{display:flex;flex-direction:column;line-height:1.15}
+.brand-name{font-family:'Space Grotesk',sans-serif;font-size:1.22rem;font-weight:700;letter-spacing:-0.01em;color:var(--ink)}
+.brand-sub{font-family:'IBM Plex Mono',monospace;font-size:.66rem;font-weight:500;color:var(--ink-faint);
+  letter-spacing:.06em;text-transform:uppercase}
 
-/* ── Main layout ─────────────────────────────────────────────── */
-.main{max-width:1100px;margin:0 auto;padding:2.5rem 2rem 4rem}
+/* ── Layout ─────────────────────────────────────────────────── */
+.main{max-width:980px;margin:0 auto;padding:44px 20px 64px}
 
 /* ── Hero ───────────────────────────────────────────────────── */
-.hero{text-align:center;margin-bottom:2.5rem}
-.hero h1{font-size:2.2rem;font-weight:900;letter-spacing:-.04em;
-  background:linear-gradient(135deg,var(--cyan),var(--purple));
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  background-clip:text;margin-bottom:.4rem}
-.hero p{color:var(--text2);font-size:.92rem}
+.hero{margin-bottom:32px;padding-bottom:28px;border-bottom:1px solid var(--line-soft)}
+.hero-eyebrow{font-family:'IBM Plex Mono',monospace;font-size:.7rem;font-weight:500;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--accent);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.hero-eyebrow::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.hero-title{font-size:2.5rem;font-weight:700;letter-spacing:-0.02em;color:var(--ink);line-height:1.05}
+.hero-desc{margin-top:12px;font-size:.96rem;color:var(--ink-soft);max-width:600px}
 
-/* ── Scan Form Card ─────────────────────────────────────────── */
-.form-card{background:var(--card);border:1px solid var(--border);border-radius:20px;
-  padding:2rem;box-shadow:var(--shadow);margin-bottom:2rem}
-.form-title{font-size:.68rem;font-weight:800;text-transform:uppercase;
-  letter-spacing:.12em;color:var(--text3);margin-bottom:1.4rem;
-  display:flex;align-items:center;gap:.6rem}
-.form-title::after{content:'';flex:1;height:1px;background:var(--border)}
-.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem}
-.form-group{display:flex;flex-direction:column;gap:.4rem}
-.form-group.full{grid-column:1/-1}
-label{font-size:.75rem;font-weight:700;color:var(--text2);letter-spacing:.04em}
-input[type=text],input[type=number],select{
-  background:var(--input);border:1px solid var(--input-border);border-radius:10px;
-  padding:.7rem 1rem;color:var(--text);font-family:'Inter',sans-serif;font-size:.88rem;
-  outline:none;transition:border-color .2s,box-shadow .2s;width:100%}
-input[type=text]:focus,input[type=number]:focus,select:focus{
-  border-color:var(--cyan);box-shadow:0 0 0 3px rgba(99,179,237,.15)}
-input::placeholder{color:var(--text3)}
+/* ── Cards ──────────────────────────────────────────────────── */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow);padding:28px;margin-bottom:20px}
+.card-label{font-family:'IBM Plex Mono',monospace;text-transform:uppercase;font-size:.66rem;font-weight:600;
+  letter-spacing:.1em;color:var(--accent);margin-bottom:8px}
+.card-title{font-size:1.3rem;font-weight:700;letter-spacing:-0.01em;margin-bottom:22px;color:var(--ink)}
+.section-title{font-size:1.02rem;font-weight:700;margin-bottom:16px;color:var(--ink)}
+.section-subtitle{font-size:.86rem;font-weight:700;margin:24px 0 12px;color:var(--ink);
+  text-transform:uppercase;letter-spacing:.04em}
 
-/* ── Categories ─────────────────────────────────────────────── */
-.cats{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:.3rem}
-.cat-chip{display:flex;align-items:center;gap:.45rem;cursor:pointer;
-  background:var(--input);border:1px solid var(--input-border);border-radius:99px;
-  padding:.35rem .9rem;font-size:.78rem;font-weight:600;color:var(--text2);
-  transition:all .2s;user-select:none}
-.cat-chip:hover{border-color:var(--cyan);color:var(--cyan)}
-.cat-chip input{display:none}
-.cat-chip.active{background:rgba(99,179,237,.12);border-color:var(--cyan);color:var(--cyan)}
-.cat-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+/* ── Form fields ────────────────────────────────────────────── */
+.form-group{display:flex;flex-direction:column;gap:16px;margin-bottom:8px}
+.input-row{display:grid;grid-template-columns:140px 1fr;align-items:center;gap:16px}
+.input-label{font-size:.85rem;font-weight:600;color:var(--ink)}
+.input-wrapper{position:relative;display:flex;align-items:center}
+.input-wrapper>i{position:absolute;left:14px;color:var(--ink-faint);pointer-events:none}
+.input-field{width:100%;height:42px;padding:0 14px 0 42px;border:1px solid var(--line);
+  border-radius:var(--radius-md);font-size:.87rem;font-family:'Inter',sans-serif;color:var(--ink);
+  background:var(--panel);outline:none;transition:border-color .15s var(--ease),box-shadow .15s var(--ease)}
+.input-field.has-toggle{padding-right:42px}
+.input-field:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.input-field::placeholder{color:var(--ink-faint)}
+.pw-toggle{position:absolute;right:6px;width:30px;height:30px;border:none;background:transparent;
+  color:var(--ink-faint);cursor:pointer;border-radius:var(--radius-sm);display:flex;align-items:center;
+  justify-content:center;transition:color .15s,background .15s}
+.pw-toggle:hover{color:var(--ink);background:var(--sunken)}
 
-/* ── Rate Limit Slider ───────────────────────────────────────── */
-.slider-row{display:flex;align-items:center;gap:.8rem}
-input[type=range]{flex:1;accent-color:var(--cyan)}
-.slider-val{font-size:.82rem;font-weight:700;color:var(--cyan);
-  font-family:'JetBrains Mono',monospace;min-width:40px}
+.validation-msg{display:none;font-size:.78rem;color:var(--medium);margin:10px 0 4px;padding-left:2px;
+  font-weight:500}
 
-/* ── Buttons ─────────────────────────────────────────────────── */
-.btn-row{display:flex;gap:.8rem;margin-top:1.5rem}
-.btn{padding:.75rem 1.8rem;border-radius:12px;border:none;cursor:pointer;
-  font-family:'Inter',sans-serif;font-size:.88rem;font-weight:700;
-  transition:transform .15s,box-shadow .15s;white-space:nowrap}
-.btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.3)}
-.btn:active{transform:translateY(0)}
-.btn-primary{background:var(--btn-primary);color:#fff}
-.btn-danger{background:var(--btn-danger);color:#fff;display:none}
-.btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+/* ── Category pills ─────────────────────────────────────────── */
+.security-areas-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.security-areas-title{font-size:.85rem;font-weight:600;color:var(--ink)}
+.counter-badge{font-family:'IBM Plex Mono',monospace;font-size:.72rem;font-weight:600;color:var(--ink-soft);
+  background:var(--sunken);padding:3px 10px;border-radius:20px;border:1px solid var(--line)}
+.pill-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:26px;transition:opacity .2s}
+.pill-grid.locked{opacity:.5;pointer-events:none}
+.pill-btn{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;font-size:.8rem;
+  font-weight:500;color:var(--ink-soft);background:var(--panel);border:1px solid var(--line);
+  border-radius:20px;cursor:pointer;user-select:none;transition:all .15s var(--ease);font-family:'Inter',sans-serif}
+.pill-btn:hover{border-color:#c3c9d2}
+.pill-btn.active{background:var(--accent-soft);border-color:rgba(15,110,140,.35);color:var(--accent);font-weight:600}
+.pill-btn .pill-dot{width:6px;height:6px;border-radius:50%;background:var(--ink-faint);transition:background .15s}
+.pill-btn.active .pill-dot{background:var(--accent)}
 
-/* ── Status Bar ──────────────────────────────────────────────── */
-.status-bar{display:none;align-items:center;gap:.8rem;
-  background:var(--card);border:1px solid var(--border);border-radius:12px;
-  padding:.8rem 1.2rem;margin-bottom:1.5rem}
-.status-dot{width:10px;height:10px;border-radius:50%;background:var(--cyan);
-  animation:pulse 1.5s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
-.status-text{font-size:.85rem;font-weight:600;color:var(--text)}
-.status-count{margin-left:auto;font-size:.78rem;color:var(--text2);font-family:'JetBrains Mono',monospace}
+/* ── Buttons ────────────────────────────────────────────────── */
+.btn-submit{width:100%;height:46px;background:var(--ink);color:#fff;border:none;
+  border-radius:var(--radius-md);font-size:.9rem;font-weight:600;font-family:'Space Grotesk',sans-serif;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;
+  transition:background .15s var(--ease),transform .1s var(--ease)}
+.btn-submit:hover{background:var(--accent-hover)}
+.btn-submit:active{transform:scale(.99)}
+.btn-submit:disabled{background:#c7cbd3;color:#fff;cursor:not-allowed}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.btn-row{display:flex;gap:10px}
+.btn-stop{flex:0 0 auto;height:46px;padding:0 22px;background:var(--sunken);color:var(--ink-faint);
+  border:1px solid var(--line);border-radius:var(--radius-md);font-size:.9rem;font-weight:600;
+  font-family:'Space Grotesk',sans-serif;cursor:not-allowed;display:flex;align-items:center;
+  justify-content:center;gap:8px;transition:background .15s,border-color .15s,color .15s;opacity:.5}
+.btn-stop.active{background:var(--high-bg);color:var(--high);border-color:rgba(192,57,43,.3);
+  cursor:pointer;opacity:1}
+.btn-stop.active:hover{background:#f5c6c0;border-color:var(--high)}
+.btn-stop.stopping{opacity:.7;cursor:not-allowed}
 
-/* ── Progress Bar ────────────────────────────────────────────── */
-.progress-wrap{margin-bottom:1.5rem;display:none}
-.progress-label{font-size:.72rem;font-weight:700;color:var(--text2);
-  margin-bottom:.4rem;display:flex;justify-content:space-between}
-.progress-track{height:6px;background:var(--border);border-radius:99px;overflow:hidden}
-.progress-fill{height:100%;border-radius:99px;width:0%;
-  background:linear-gradient(90deg,var(--cyan),var(--purple));
-  transition:width .4s ease}
+/* ── Live panel — the "film" ───────────────────────────────────
+   Once a scan starts, the interface drops into the backlit panel:
+   dark, glowing, instrument-readout typography. This is the one
+   place the design spends its accent color. */
+.film{display:none;margin-top:22px;background:var(--film);border-radius:var(--radius-md);
+  padding:20px 22px;position:relative;overflow:hidden;border:1px solid var(--film-line)}
+.film::before{content:'';position:absolute;left:0;right:0;top:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--glow),transparent);
+  opacity:.7;animation:filmsweep 2.2s linear infinite}
+@keyframes filmsweep{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.live-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;font-size:.82rem}
+.live-k{font-family:'IBM Plex Mono',monospace;font-size:.7rem;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--film-text-dim)}
+.live-v{color:var(--film-text);font-weight:600;font-family:'IBM Plex Mono',monospace;font-size:.8rem}
+.live-v.glow{color:var(--glow)}
+.progress-track{height:5px;background:var(--film-line);border-radius:99px;overflow:hidden;margin-top:12px;
+  position:relative}
+.progress-fill{height:100%;width:0%;background:var(--glow);border-radius:99px;
+  transition:width .35s var(--ease);box-shadow:0 0 10px var(--glow)}
 
-/* ── Terminal ────────────────────────────────────────────────── */
-.terminal-wrap{display:none;margin-bottom:2rem}
-.terminal-header{display:flex;align-items:center;justify-content:space-between;
-  background:#1a1f2e;border-radius:14px 14px 0 0;padding:.7rem 1rem;
-  border:1px solid var(--border);border-bottom:none}
-.terminal-dots{display:flex;gap:.45rem}
-.terminal-dots span{width:12px;height:12px;border-radius:50%}
-.dot-red{background:#ff5f57}.dot-yellow{background:#febc2e}.dot-green{background:#28c840}
-.terminal-title{font-size:.72rem;color:var(--text3);font-family:'JetBrains Mono',monospace}
-.terminal-clear{font-size:.72rem;color:var(--text3);cursor:pointer;padding:.2rem .6rem;
-  border-radius:6px;border:1px solid var(--border);background:transparent;
-  color:var(--text2);transition:color .2s}
-.terminal-clear:hover{color:var(--cyan)}
-.terminal{background:var(--terminal);border:1px solid var(--border);border-radius:0 0 14px 14px;
-  padding:1rem 1.2rem;min-height:220px;max-height:340px;overflow-y:auto;
-  font-family:'JetBrains Mono',monospace;font-size:.78rem;line-height:1.7}
-.t-cyan{color:#63b3ed}.t-green{color:#a8ff78}.t-red{color:#f87171}
-.t-yellow{color:#facc15}.t-dim{color:#4a5568}.t-white{color:#e8eaf6}
+/* ── Console ────────────────────────────────────────────────── */
+.console-box{display:none;background:var(--film-panel);color:var(--film-text-dim);
+  border-radius:var(--radius-md);border:1px solid var(--film-line);
+  padding:14px 16px;font-family:'IBM Plex Mono',monospace;font-size:.76rem;line-height:1.7;
+  max-height:170px;overflow-y:auto;margin-top:14px}
+.console-line{display:flex;gap:10px}
+.console-time{color:#4a5568;flex-shrink:0}
+.c-ok{color:var(--glow)}
+.c-err{color:var(--high-glow)}
+.c-warn{color:var(--medium-glow)}
 
-/* ── Results ─────────────────────────────────────────────────── */
-.results-section{display:none}
-.section-label{font-size:.68rem;font-weight:800;text-transform:uppercase;
-  letter-spacing:.12em;color:var(--text3);margin:2rem 0 1rem;
-  display:flex;align-items:center;gap:.6rem}
-.section-label::after{content:'';flex:1;height:1px;background:var(--border)}
+/* ── Reports ────────────────────────────────────────────────── */
+.reports-section{margin-top:20px}
+.reports-list{display:flex;flex-direction:column;gap:12px}
+.report-card{display:flex;align-items:center;justify-content:space-between;padding:13px 15px;
+  border:1px solid var(--line);border-radius:var(--radius-md);background:var(--sunken)}
+.report-info{display:flex;align-items:center;gap:12px}
+.report-icon-box{width:34px;height:34px;border-radius:var(--radius-sm);background:var(--accent-soft);
+  color:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.report-meta h4{font-size:.86rem;font-weight:600;color:var(--ink)}
+.report-meta span{font-size:.73rem;color:var(--ink-faint);font-family:'IBM Plex Mono',monospace}
+.download-btn{color:var(--ink-soft);background:var(--panel);border:1px solid var(--line);
+  cursor:pointer;padding:7px;border-radius:var(--radius-sm);transition:all .15s;display:inline-flex;
+  text-decoration:none}
+.download-btn:hover:not(.disabled){color:var(--accent);border-color:rgba(15,110,140,.4);background:var(--accent-soft)}
+.download-btn.disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
+.report-actions{display:flex;align-items:center;gap:8px}
+.open-btn{color:var(--ink-soft);background:var(--panel);border:1px solid var(--line);
+  cursor:pointer;padding:7px 11px;border-radius:var(--radius-sm);transition:all .15s;display:inline-flex;
+  align-items:center;gap:6px;text-decoration:none;font-size:.75rem;font-weight:600;font-family:'IBM Plex Mono',monospace}
+.open-btn:hover:not(.disabled){color:var(--accent);border-color:rgba(15,110,140,.4);background:var(--accent-soft)}
+.open-btn.disabled{opacity:.4;cursor:not-allowed;pointer-events:none}
 
-/* ── Summary Cards ───────────────────────────────────────────── */
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.9rem}
-.card{background:var(--card);border:1px solid var(--border);border-radius:16px;
-  padding:1.2rem 1.3rem;position:relative;overflow:hidden;
-  transition:transform .2s,box-shadow .2s}
-.card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;border-radius:16px 16px 0 0}
-.card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.25)}
-.card-lbl{font-size:.62rem;text-transform:uppercase;letter-spacing:.1em;
-  color:var(--text3);font-weight:700;margin-bottom:.4rem}
-.card-val{font-size:2rem;font-weight:900;letter-spacing:-.04em;line-height:1}
-.card-sub{font-size:.68rem;color:var(--text3);margin-top:.2rem}
-.c-total::before{background:linear-gradient(90deg,#3b82f6,#6366f1)}
-.c-total .card-val{color:#60a5fa}
-.c-crit::before{background:linear-gradient(90deg,#ef4444,#dc2626)}
-.c-crit .card-val{color:#f87171}
-.c-high::before{background:linear-gradient(90deg,#f97316,#ea580c)}
-.c-high .card-val{color:#fb923c}
-.c-med::before{background:linear-gradient(90deg,#eab308,#ca8a04)}
-.c-med .card-val{color:#facc15}
-.c-low::before{background:linear-gradient(90deg,#22c55e,#16a34a)}
-.c-low .card-val{color:#4ade80}
-.c-risk::before{background:linear-gradient(90deg,#a855f7,#7c3aed)}
-.c-risk .card-val{color:#c084fc}
+/* ── Results ────────────────────────────────────────────────── */
+.summary-cards{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.stat{background:var(--sunken);border:1px solid var(--line);border-radius:var(--radius-md);
+  padding:14px 10px;text-align:center}
+.stat-val{font-family:'Space Grotesk',sans-serif;font-size:1.5rem;font-weight:700;letter-spacing:-0.02em;color:var(--ink)}
+.stat-lbl{font-family:'IBM Plex Mono',monospace;font-size:.63rem;font-weight:500;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--ink-faint);margin-top:3px}
+.stat-high .stat-val{color:var(--high)}
+.stat-med .stat-val{color:var(--medium)}
+.stat-low .stat-val{color:var(--low)}
 
-/* ── Download Bar ────────────────────────────────────────────── */
-.dl-bar{display:flex;gap:.8rem;flex-wrap:wrap;margin-top:1rem}
-.btn-dl{padding:.6rem 1.3rem;border-radius:10px;border:1px solid var(--border);
-  background:var(--card);color:var(--text2);font-size:.82rem;font-weight:600;
-  cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:.5rem;
-  transition:all .2s;font-family:'Inter',sans-serif}
-.btn-dl:hover{border-color:var(--cyan);color:var(--cyan)}
+/* Findings — read like plates pulled off the film, dark card
+   with a soft glow at the edge in the severity color. */
+.finding-card{border:1px solid var(--film-line);border-left:3px solid var(--film-line);
+  border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:10px;
+  background:var(--film-panel);position:relative;overflow:hidden}
+.finding-card.sev-high,.finding-card.sev-critical{border-left-color:var(--high-glow);
+  box-shadow:inset 40px 0 40px -36px rgba(255,122,104,.18)}
+.finding-card.sev-medium{border-left-color:var(--medium-glow);
+  box-shadow:inset 40px 0 40px -36px rgba(255,192,107,.16)}
+.finding-card.sev-low{border-left-color:var(--low-glow);
+  box-shadow:inset 40px 0 40px -36px rgba(107,240,194,.12)}
+.finding-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.finding-name{font-size:.86rem;font-weight:600;color:var(--film-text)}
+.sev-badge{font-family:'IBM Plex Mono',monospace;font-size:.62rem;font-weight:600;text-transform:uppercase;
+  letter-spacing:.06em;padding:2px 8px;border-radius:4px}
+.sev-badge.sev-high,.sev-badge.sev-critical{color:var(--high-glow);background:rgba(255,122,104,.12)}
+.sev-badge.sev-medium{color:var(--medium-glow);background:rgba(255,192,107,.12)}
+.sev-badge.sev-low{color:var(--low-glow);background:rgba(107,240,194,.12)}
+.finding-meta{display:flex;gap:16px;font-size:.73rem;color:var(--film-text-dim);margin-top:6px;
+  font-family:'IBM Plex Mono',monospace}
+.finding-evidence{margin-top:8px;font-size:.78rem;color:var(--film-text-dim);background:var(--film);
+  border:1px solid var(--film-line);border-radius:6px;padding:8px 10px;font-family:'IBM Plex Mono',monospace}
+.ev-label{display:block;font-family:'IBM Plex Mono',monospace;font-size:.63rem;font-weight:600;
+  text-transform:uppercase;letter-spacing:.08em;color:var(--film-text-dim);margin-bottom:3px;opacity:.7}
+.no-findings{display:flex;align-items:center;gap:8px;padding:18px;color:var(--low);font-size:.86rem;
+  font-weight:600;background:var(--low-bg);border-radius:var(--radius-md);border:1px solid rgba(31,122,92,.18)}
 
-/* ── Findings Table ──────────────────────────────────────────── */
-.tbl-wrap{overflow-x:auto;border-radius:14px;border:1px solid var(--border);margin-top:.5rem}
-table{width:100%;border-collapse:collapse;background:var(--card);font-size:.8rem}
-thead{background:rgba(99,179,237,.06)}
-thead th{padding:.85rem 1rem;text-align:left;font-size:.62rem;font-weight:800;
-  text-transform:uppercase;letter-spacing:.1em;color:var(--text3);white-space:nowrap;
-  border-bottom:1px solid var(--border)}
-tbody td{padding:.8rem 1rem;border-bottom:1px solid var(--border);vertical-align:middle;
-  color:var(--text)}
-tbody tr:last-child td{border-bottom:none}
-tbody tr:hover td{background:rgba(99,179,237,.04)!important}
-.rc{background:rgba(239,68,68,.07)}
-.rh{background:rgba(249,115,22,.06)}
-.rm{background:rgba(234,179,8,.06)}
-.rl{background:rgba(34,197,94,.05)}
-.badge{display:inline-flex;align-items:center;gap:.3rem;padding:.22rem .7rem;
-  border-radius:99px;font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;white-space:nowrap}
-.badge::before{content:'●';font-size:.5rem}
-.b-critical{background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3)}
-.b-high{background:rgba(249,115,22,.15);color:#fb923c;border:1px solid rgba(249,115,22,.3)}
-.b-medium{background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3)}
-.b-low{background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3)}
-.mono{font-family:'JetBrains Mono',monospace;font-size:.73rem;
-  background:rgba(255,255,255,.05);border:1px solid var(--border);
-  border-radius:5px;padding:.15rem .4rem;color:var(--cyan);word-break:break-word;
-  display:inline-block;max-width:180px}
-.risk-wrap{display:flex;align-items:center;gap:.5rem;min-width:100px}
-.risk-num{font-family:'JetBrains Mono',monospace;font-weight:800;font-size:.84rem;min-width:28px;text-align:right}
-.risk-track{flex:1;height:5px;background:var(--border);border-radius:99px;overflow:hidden;min-width:45px}
-.risk-fill{height:100%;border-radius:99px}
+/* ── Footer ─────────────────────────────────────────────────── */
+.footer{text-align:center;padding:24px 0;font-size:.72rem;color:var(--ink-faint);
+  font-family:'IBM Plex Mono',monospace;letter-spacing:.03em;
+  border-top:1px solid var(--line);background:var(--panel)}
 
-
-
-/* -- Empty state ---------------------------------------------------- */
-.no-findings{background:var(--card);border:1px solid rgba(34,197,94,.3);border-radius:14px;
-  padding:3rem 2rem;text-align:center;color:var(--green);font-weight:600}
-
-/* ── Scrollbar ───────────────────────────────────────────────── */
-::-webkit-scrollbar{width:5px;height:5px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
-
-@media(max-width:640px){
-  .form-grid{grid-template-columns:1fr}
-  .form-group.full{grid-column:1}
-  .hero h1{font-size:1.6rem}
+@media(max-width:768px){
+  .hero-title{font-size:1.9rem}
+  .input-row{grid-template-columns:1fr;gap:6px}
+  .summary-cards{grid-template-columns:repeat(3,1fr)}
 }
 </style>
 </head>
 <body>
 
-<!-- ══ NAVBAR ════════════════════════════════════════ -->
 <nav class="nav">
-  <div class="nav-brand">
-    <div class="shield">🛡</div>
-    LLM Scanner
-  </div>
-  <div class="nav-right">
-    <span class="nav-badge">Web Dashboard</span>
-    <div class="toggle" id="themeToggle">
-      <span class="toggle-icon">🌙</span>
-      <div class="toggle-track"><div class="toggle-knob"></div></div>
-      <span class="toggle-icon">☀️</span>
+  <div class="brand">
+    <div class="brand-mark">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 7v6c0 5 4 8.5 9 9 5-.5 9-4 9-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
+    </div>
+    <div class="brand-text">
+      <span class="brand-name">AI-Xray</span>
+      <span class="brand-sub">LLM Application Security Scanner</span>
     </div>
   </div>
 </nav>
 
-<!-- ══ MAIN ══════════════════════════════════════════ -->
 <div class="main">
 
-  <!-- Hero -->
   <div class="hero">
-    <h1>AI Security Scanner</h1>
-    <p>Enter your target URL and API key — run a full OWASP LLM Top 10 scan right here in the browser.</p>
+    <div class="hero-eyebrow">Security Assessment</div>
+    <h1 class="hero-title">See through your LLM endpoint.</h1>
+    <p class="hero-desc">Run an OWASP LLM Top 10 assessment against a live endpoint and read the results off the plate — structured findings, risk-scored and ready to export.</p>
   </div>
 
-  <!-- Scan Form -->
-  <div class="form-card">
-    <div class="form-title">Scan Configuration</div>
-    <div class="form-grid">
+  <div class="card">
+    <div class="card-label">Configuration</div>
+    <h1 class="card-title">Scan your LLM endpoint</h1>
+
+    <form id="scannerForm">
       <div class="form-group">
-        <label>TARGET URL</label>
-        <input type="text" id="targetUrl" placeholder="http://localhost:5000" value="http://localhost:5000"/>
+
+        <div class="input-row">
+          <label class="input-label" for="targetUrl">Target URL</label>
+          <div class="input-wrapper">
+            <i data-lucide="link" size="16"></i>
+            <input type="text" id="targetUrl" class="input-field" placeholder="http://localhost:5000" value="http://localhost:5000"/>
+          </div>
+        </div>
+
+        <div class="input-row">
+          <label class="input-label" for="apiKey">API Key</label>
+          <div class="input-wrapper">
+            <i data-lucide="key" size="16"></i>
+            <input type="password" id="apiKey" class="input-field has-toggle" placeholder="Enter API key or bearer token" value="demo123"/>
+            <button type="button" class="pw-toggle" id="pwToggle" aria-label="Show API key" onclick="togglePwVisibility()">
+              <i data-lucide="eye" size="16" id="pwToggleIcon"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="input-row">
+          <label class="input-label" for="endpoint">Endpoint</label>
+          <div class="input-wrapper">
+            <i data-lucide="terminal" size="16"></i>
+            <input type="text" id="endpoint" class="input-field" placeholder="/chat" value="/chat"/>
+          </div>
+        </div>
+
       </div>
-      <div class="form-group">
-        <label>API KEY</label>
-        <input type="text" id="apiKey" placeholder="demo123" value="demo123"/>
+
+      <div class="validation-msg" id="validationMsg" role="alert">Enter a target URL and API key to continue.</div>
+
+      <div class="security-areas-header">
+        <span class="security-areas-title">Select the security areas to assess</span>
+        <span class="counter-badge" id="selectedCount">9/9 selected</span>
       </div>
-      <div class="form-group">
-        <label>ENDPOINT PATH</label>
-        <input type="text" id="endpoint" placeholder="/chat" value="/chat"/>
+
+      <div class="pill-grid" id="pillGrid">
+        <button type="button" class="pill-btn active" data-value="prompt_injection" onclick="togglePill(this)">
+          <span class="pill-dot"></span> Prompt Injection
+        </button>
+        <button type="button" class="pill-btn active" data-value="jailbreak" onclick="togglePill(this)">
+          <span class="pill-dot"></span> Jailbreak
+        </button>
+        <button type="button" class="pill-btn active" data-value="data_leakage" onclick="togglePill(this)">
+          <span class="pill-dot"></span> Data Leakage
+        </button>
+        <button type="button" class="pill-btn active" data-value="output_handling" onclick="togglePill(this)">
+          <span class="pill-dot"></span> Output Handling
+        </button>
+        <button type="button" class="pill-btn active" data-value="insecure_plugin_design" onclick="togglePill(this)">
+          <span class="pill-dot"></span> Insecure Plugin Design
+        </button>
+        <button type="button" class="pill-btn active" data-value="model_dos" onclick="togglePill(this)">
+          <span class="pill-dot"></span> Model DoS
+        </button>
+        <button type="button" class="pill-btn active" data-value="excessive_agency" onclick="togglePill(this)">
+          <span class="pill-dot"></span> Excessive Agency
+        </button>
+        <button type="button" class="pill-btn active" data-value="overreliance" onclick="togglePill(this)">
+          <span class="pill-dot"></span> Overreliance
+        </button>
+        <button type="button" class="pill-btn active" data-value="model_theft_leak" onclick="togglePill(this)">
+          <span class="pill-dot"></span> Model Theft
+        </button>
       </div>
-      <div class="form-group">
-        <label>RATE LIMIT (seconds between requests)</label>
-        <div class="slider-row">
-          <input type="range" id="rateLimit" min="0" max="3" step="0.5" value="0.5"
-            oninput="document.getElementById('rateVal').textContent=this.value+'s'"/>
-          <span class="slider-val" id="rateVal">0.5s</span>
+
+      <div class="btn-row">
+        <button type="button" class="btn-submit" id="submitBtn" onclick="startScan()" style="flex:1">
+          <i data-lucide="play" size="16"></i>
+          <span>Start scan</span>
+        </button>
+        <button type="button" class="btn-stop" id="stopBtn" onclick="stopScan()" disabled title="Stop current scan">
+          <i data-lucide="square" size="16"></i>
+          <span>Stop</span>
+        </button>
+      </div>
+    </form>
+
+    <div class="film" id="livePanel">
+      <div class="live-row"><span class="live-k">Target</span><span class="live-v" id="liveTarget">—</span></div>
+      <div class="live-row"><span class="live-k">Tests completed</span><span class="live-v" id="liveCount">0 / 0</span></div>
+      <div class="live-row"><span class="live-k">Current test</span><span class="live-v" id="liveCurrent">—</span></div>
+      <div class="live-row"><span class="live-k">Status</span><span class="live-v glow" id="liveStatus">Idle</span></div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    </div>
+
+    <div class="console-box" id="consoleBox"></div>
+  </div>
+
+  <div class="card reports-section">
+    <h3 class="section-title">Scan reports</h3>
+    <div class="reports-list">
+
+      <div class="report-card">
+        <div class="report-info">
+          <div class="report-icon-box"><i data-lucide="file-code" size="17"></i></div>
+          <div class="report-meta">
+            <h4>HTML report</h4>
+            <span id="htmlReportStatus">Available after scan</span>
+          </div>
+        </div>
+        <div class="report-actions">
+          <a class="open-btn disabled" id="htmlOpenBtn" aria-disabled="true" tabindex="-1" aria-label="Open HTML report in browser" title="Open in browser" target="_blank" rel="noopener">
+            <i data-lucide="external-link" size="14"></i> Open
+          </a>
+          <a class="download-btn disabled" id="htmlDownloadBtn" aria-disabled="true" tabindex="-1" aria-label="Download HTML report" title="Download HTML report">
+            <i data-lucide="download" size="16"></i>
+          </a>
         </div>
       </div>
-      <div class="form-group full">
-        <label>PAYLOAD CATEGORIES (all selected by default)</label>
-        <div class="cats" id="catChips">
-          <label class="cat-chip active" data-val="prompt_injection">
-            <span class="cat-dot"></span> Prompt Injection
-          </label>
-          <label class="cat-chip active" data-val="jailbreak">
-            <span class="cat-dot"></span> Jailbreak
-          </label>
-          <label class="cat-chip active" data-val="data_leakage">
-            <span class="cat-dot"></span> Data Leakage
-          </label>
-          <label class="cat-chip active" data-val="output_handling">
-            <span class="cat-dot"></span> Output Handling
-          </label>
-          <label class="cat-chip active" data-val="excessive_agency">
-            <span class="cat-dot"></span> Excessive Agency
-          </label>
-          <label class="cat-chip active" data-val="overreliance">
-            <span class="cat-dot"></span> Overreliance
-          </label>
-          <label class="cat-chip active" data-val="model_theft_leak">
-            <span class="cat-dot"></span> Model Theft
-          </label>
-          <label class="cat-chip active" data-val="model_dos">
-            <span class="cat-dot"></span> Model DoS
-          </label>
-          <label class="cat-chip active" data-val="insecure_plugin_design">
-            <span class="cat-dot"></span> Insecure Plugin Design
-          </label>
+
+      <div class="report-card">
+        <div class="report-info">
+          <div class="report-icon-box"><i data-lucide="file-json" size="17"></i></div>
+          <div class="report-meta">
+            <h4>JSON report</h4>
+            <span id="jsonReportStatus">Available after scan</span>
+          </div>
         </div>
+        <a class="download-btn disabled" id="jsonDownloadBtn" aria-disabled="true" tabindex="-1" aria-label="Download JSON report" title="Download JSON report">
+          <i data-lucide="download" size="16"></i>
+        </a>
       </div>
-    </div>
-    <div class="btn-row">
-      <button class="btn btn-primary" id="btnScan" onclick="startScan()">▶ Run Scan</button>
-      <button class="btn btn-danger" id="btnStop" onclick="stopScan()">■ Stop</button>
+
     </div>
   </div>
 
-  <!-- Status Bar -->
-  <div class="status-bar" id="statusBar">
-    <div class="status-dot"></div>
-    <span class="status-text" id="statusText">Initialising scan…</span>
-    <span class="status-count" id="statusCount"></span>
-  </div>
-
-  <!-- Progress -->
-  <div class="progress-wrap" id="progressWrap">
-    <div class="progress-label">
-      <span id="progressLabel">Progress</span>
-      <span id="progressPct">0%</span>
-    </div>
-    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
-  </div>
-
-  <!-- Terminal -->
-  <div class="terminal-wrap" id="termWrap">
-    <div class="terminal-header">
-      <div class="terminal-dots">
-        <span class="dot-red"></span><span class="dot-yellow"></span><span class="dot-green"></span>
-      </div>
-      <span class="terminal-title">scan output</span>
-      <button class="terminal-clear" onclick="clearTerminal()">clear</button>
-    </div>
-    <div class="terminal" id="terminal"></div>
-  </div>
-
-
-
-  <!-- Results -->
-  <div class="results-section" id="resultsSection">
-    <div class="section-label">Scan Results</div>
-    <div class="cards" id="summaryCards"></div>
-    <div class="dl-bar" id="dlBar"></div>
-    <div class="section-label">Detailed Findings</div>
+  <div class="card" id="resultsCard" style="display:none">
+    <h3 class="section-title">Scan results</h3>
+    <div class="summary-cards" id="summaryCards"></div>
+    <h4 class="section-subtitle">Findings</h4>
     <div id="findingsWrap"></div>
   </div>
 
-</div><!-- /main -->
+</div>
+
+<footer class="footer">AI-Xray · LLM Application Security Scanner</footer>
 
 <script>
-const html = document.documentElement;
+lucide.createIcons();
+
+const CATEGORY_LABELS = {
+  prompt_injection: "Prompt Injection",
+  jailbreak: "Jailbreak",
+  data_leakage: "Sensitive Information Disclosure",
+  output_handling: "Insecure Output Handling",
+  insecure_plugin_design: "Insecure Plugin Design",
+  model_dos: "Model Denial of Service",
+  excessive_agency: "Excessive Agency",
+  overreliance: "Overreliance",
+  model_theft_leak: "Model Theft"
+};
+
+// Fixed rate limit between requests (no UI control per product decision)
+const FIXED_RATE_LIMIT = 0.5;
+
 let eventSource = null;
 let currentScanId = null;
 let totalPayloads = 0;
 let donePayloads  = 0;
+let livePollTimer = null;
+let pwVisible = false;
+let scanning = false;
 
-// Attack map removed
-function _startMapPolling(){}
-function _stopMapPolling(){}
+function togglePwVisibility() {
+  const input = document.getElementById('apiKey');
+  const icon  = document.getElementById('pwToggleIcon');
+  const btn   = document.getElementById('pwToggle');
+  pwVisible = !pwVisible;
+  input.type = pwVisible ? 'text' : 'password';
+  icon.setAttribute('data-lucide', pwVisible ? 'eye-off' : 'eye');
+  btn.setAttribute('aria-label', pwVisible ? 'Hide API key' : 'Show API key');
+  lucide.createIcons();
+}
 
-// ── Theme toggle ─────────────────────────────────────────────
-const saved = localStorage.getItem('llmscanner-theme');
-if (saved) html.setAttribute('data-theme', saved);
-document.getElementById('themeToggle').addEventListener('click', () => {
-  const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-  html.setAttribute('data-theme', next);
-  localStorage.setItem('llmscanner-theme', next);
-});
-
-// ── Category chips ────────────────────────────────────────────
-document.querySelectorAll('.cat-chip').forEach(chip => {
-  chip.addEventListener('click', () => chip.classList.toggle('active'));
-});
-
+function togglePill(el) {
+  if (scanning) return;
+  el.classList.toggle('active');
+  updateBadgeCount();
+}
+function updateBadgeCount() {
+  const activeCount = document.querySelectorAll('.pill-btn.active').length;
+  const totalCount  = document.querySelectorAll('.pill-btn').length;
+  document.getElementById('selectedCount').innerText = `${activeCount}/${totalCount} selected`;
+}
 function getSelectedCats() {
-  return [...document.querySelectorAll('.cat-chip.active')].map(c => c.dataset.val);
+  return [...document.querySelectorAll('.pill-btn.active')].map(p => p.dataset.value);
 }
 
-// ── Terminal helpers ──────────────────────────────────────────
-function term(msg, cls='t-white') {
-  const el = document.getElementById('terminal');
-  el.innerHTML += `<div class="${cls}">${msg}</div>`;
-  el.scrollTop = el.scrollHeight;
-}
-function clearTerminal() { document.getElementById('terminal').innerHTML = ''; }
-
-// ── Progress helpers ──────────────────────────────────────────
-function setProgress(done, total) {
-  const pct = total > 0 ? Math.round((done/total)*100) : 0;
-  document.getElementById('progressFill').style.width = pct + '%';
-  document.getElementById('progressPct').textContent  = pct + '%';
-  document.getElementById('progressLabel').textContent = `Payload ${done} of ${total}`;
+function validateInputs() {
+  const url = document.getElementById('targetUrl').value.trim();
+  const key = document.getElementById('apiKey').value.trim();
+  const msg = document.getElementById('validationMsg');
+  if (!url || !key) { msg.style.display = 'block'; return false; }
+  msg.style.display = 'none';
+  return true;
 }
 
-// ── Start Scan ────────────────────────────────────────────────
+function term(message, cls = '') {
+  const box = document.getElementById('consoleBox');
+  const time = new Date().toLocaleTimeString();
+  const line = document.createElement('div');
+  line.className = 'console-line' + (cls ? ' c-' + cls : '');
+  line.innerHTML = `<span class="console-time">[${time}]</span><span>${esc(message)}</span>`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+function esc(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function setReportsGenerating() {
+  document.getElementById('htmlReportStatus').textContent = 'Generating…';
+  document.getElementById('jsonReportStatus').textContent = 'Generating…';
+  disableReportBtn('htmlDownloadBtn');
+  disableReportBtn('jsonDownloadBtn');
+  disableOpenBtn('htmlOpenBtn');
+}
+function resetReports() {
+  document.getElementById('htmlReportStatus').textContent = 'Available after scan';
+  document.getElementById('jsonReportStatus').textContent = 'Available after scan';
+  disableReportBtn('htmlDownloadBtn');
+  disableReportBtn('jsonDownloadBtn');
+  disableOpenBtn('htmlOpenBtn');
+}
+function disableReportBtn(id) {
+  const btn = document.getElementById(id);
+  btn.classList.add('disabled');
+  btn.removeAttribute('href');
+  btn.removeAttribute('download');
+  btn.setAttribute('aria-disabled', 'true');
+  btn.tabIndex = -1;
+}
+function enableReportBtn(id, href, filename) {
+  const btn = document.getElementById(id);
+  btn.classList.remove('disabled');
+  btn.href = href;
+  btn.setAttribute('download', filename);
+  btn.removeAttribute('aria-disabled');
+  btn.tabIndex = 0;
+}
+function disableOpenBtn(id) {
+  const btn = document.getElementById(id);
+  btn.classList.add('disabled');
+  btn.removeAttribute('href');
+  btn.setAttribute('aria-disabled', 'true');
+  btn.tabIndex = -1;
+}
+function enableOpenBtn(id, href) {
+  const btn = document.getElementById(id);
+  btn.classList.remove('disabled');
+  btn.href = href;
+  btn.removeAttribute('aria-disabled');
+  btn.tabIndex = 0;
+}
+function setReportLinks(jsonFile, htmlFile) {
+  if (htmlFile) {
+    document.getElementById('htmlReportStatus').textContent = 'Ready';
+    enableReportBtn('htmlDownloadBtn', `/reports/${htmlFile}`, 'ai-xray-security-report.html');
+    enableOpenBtn('htmlOpenBtn', `/reports/${htmlFile}`);
+  }
+  if (jsonFile) {
+    document.getElementById('jsonReportStatus').textContent = 'Ready';
+    enableReportBtn('jsonDownloadBtn', `/reports/${jsonFile}`, 'ai-xray-security-report.json');
+  }
+}
+
+function startLivePolling() {
+  stopLivePolling();
+  livePollTimer = setInterval(pollLiveStatus, 1000);
+  pollLiveStatus();
+}
+function stopLivePolling() {
+  if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null; }
+}
+async function pollLiveStatus() {
+  try {
+    const r = await fetch('/api/live-status?t=' + Date.now(), {cache:'no-store'});
+    if (r.ok) {
+      const d = await r.json();
+      if (!d.error) applyLiveStatus(d);
+    }
+  } catch(_) {}
+}
+function applyLiveStatus(d) {
+  // Live status polling still works; reserved for future coverage UI.
+}
+
 async function startScan() {
+  if (scanning) return;
+  if (!validateInputs()) return;
+
   const url      = document.getElementById('targetUrl').value.trim();
   const apikey   = document.getElementById('apiKey').value.trim();
   const endpoint = document.getElementById('endpoint').value.trim() || '/chat';
-  const rate     = parseFloat(document.getElementById('rateLimit').value);
   const cats     = getSelectedCats();
 
-  if (!url)    { alert('Please enter a target URL.'); return; }
-  if (!apikey) { alert('Please enter an API key.');    return; }
+  scanning = true;
+  const submitBtn = document.getElementById('submitBtn');
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = `<i data-lucide="loader-2" size="16" class="spin"></i><span>Scanning…</span>`;
+  const stopBtn = document.getElementById('stopBtn');
+  stopBtn.disabled = false;
+  stopBtn.classList.add('active');
+  stopBtn.classList.remove('stopping');
+  stopBtn.innerHTML = `<i data-lucide="square" size="16"></i><span>Stop</span>`;
+  lucide.createIcons();
 
-  // Reset UI
-  document.getElementById('btnScan').disabled = true;
-  document.getElementById('btnStop').style.display = 'inline-block';
-  document.getElementById('statusBar').style.display  = 'flex';
-  document.getElementById('progressWrap').style.display = 'block';
-  document.getElementById('termWrap').style.display = 'block';
-  document.getElementById('resultsSection').style.display = 'none';
-  clearTerminal();
+  document.getElementById('pillGrid').classList.add('locked');
+  document.getElementById('resultsCard').style.display = 'none';
+  document.getElementById('livePanel').style.display = 'block';
+  document.getElementById('consoleBox').style.display = 'block';
+  document.getElementById('consoleBox').innerHTML = '';
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('liveTarget').textContent = url + endpoint;
+  document.getElementById('liveCount').textContent = '0 / 0';
+  document.getElementById('liveCurrent').textContent = '—';
+  document.getElementById('liveStatus').textContent = 'Starting…';
+  setReportsGenerating();
+
   donePayloads = 0; totalPayloads = 0;
-  setProgress(0, 1);
-  _startMapPolling();
 
-  document.getElementById('statusText').textContent = 'Starting scan…';
-  document.getElementById('statusCount').textContent = '';
+  term(`Target initialized: ${url}${endpoint}`);
+  term(`Loaded ${cats.length} test suite(s). Starting security assessment…`);
 
-  term('▶  Scan started', 't-cyan');
-  term(`   Target  : ${url}${endpoint}`, 't-dim');
-  term(`   API Key : ${'*'.repeat(Math.min(8, apikey.length))}`, 't-dim');
-  term(`   Cats    : ${cats.length ? cats.join(', ') : 'all'}`, 't-dim');
-  term('─'.repeat(52), 't-dim');
-
-  // POST to /api/scan
   let scanId;
   try {
     const res = await fetch('/api/scan', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url, apikey, endpoint, rate_limit: rate,
+      body: JSON.stringify({url, apikey, endpoint, rate_limit: FIXED_RATE_LIMIT,
                             categories: cats.length ? cats : null})
     });
     const data = await res.json();
-    if (!res.ok) { term('✖  ' + (data.error || 'Failed to start scan'), 't-red'); resetUI(); return; }
+    if (!res.ok) { term(data.error || 'Failed to start scan', 'err'); finishScan(false); return; }
     scanId = data.scan_id;
     currentScanId = scanId;
   } catch(e) {
-    term('✖  Could not connect to scanner server: ' + e.message, 't-red');
-    resetUI(); return;
+    term('Could not connect to the scanner backend: ' + e.message, 'err');
+    finishScan(false); return;
   }
 
-  // Open SSE stream
+  startLivePolling();
+  document.getElementById('liveStatus').textContent = 'Testing';
+
   eventSource = new EventSource(`/api/scan/stream/${scanId}`);
 
   eventSource.onmessage = (e) => {
@@ -522,137 +668,140 @@ async function startScan() {
 
     if (msg.type === 'total') {
       totalPayloads = msg.value;
-      term(`   Total payloads : ${totalPayloads}`, 't-dim');
-      term('─'.repeat(52), 't-dim');
+      document.getElementById('liveCount').textContent = `0 / ${totalPayloads}`;
+      term(`Total payloads: ${totalPayloads}`);
     }
     else if (msg.type === 'progress') {
       donePayloads++;
-      setProgress(donePayloads, totalPayloads);
-      document.getElementById('statusText').textContent  = `Testing: ${msg.name}`;
-      document.getElementById('statusCount').textContent = `${donePayloads}/${totalPayloads}`;
-      term(`[${donePayloads}/${totalPayloads}] ${msg.id}: ${msg.name}`, 't-cyan');
+      const pct = totalPayloads > 0 ? Math.round((donePayloads/totalPayloads)*100) : 0;
+      document.getElementById('progressFill').style.width = pct + '%';
+      document.getElementById('liveCount').textContent = `${donePayloads}/${totalPayloads}`;
+      document.getElementById('liveCurrent').textContent = msg.name;
+      term(`[${donePayloads}/${totalPayloads}] ${msg.id}: ${msg.name}`);
     }
     else if (msg.type === 'finding') {
-      term(`  ⚠  ${msg.tag} | ${msg.severity.toUpperCase()} | Risk ${msg.risk}/100`, 't-red');
-      term(`     matched: "${msg.matched}"`, 't-yellow');
+      term(`Finding — ${msg.tag} · ${String(msg.severity).toUpperCase()} · risk ${msg.risk}/100`, 'warn');
     }
     else if (msg.type === 'ok') {
-      term(`  ✓  No vulnerability detected`, 't-green');
+      term('No vulnerability detected', 'ok');
     }
     else if (msg.type === 'error') {
-      term(`  ✖  ${msg.message}`, 't-red');
+      term(msg.message, 'err');
     }
     else if (msg.type === 'done') {
-      term('─'.repeat(52), 't-dim');
-      term(`✔  Scan complete — ${msg.total_findings} finding(s) | Avg risk: ${msg.avg_risk}/100`, 't-green');
-      document.getElementById('statusText').textContent = 'Scan complete';
-      document.getElementById('statusDot') && (document.querySelector('.status-dot').style.animation = 'none');
+      term(`Scan complete — ${msg.total_findings} finding(s) · avg risk ${msg.avg_risk}/100`, 'ok');
+      document.getElementById('liveStatus').textContent = 'Complete';
       eventSource.close();
+      stopLivePolling();
       loadResults(scanId);
-      resetUI(false);
+      finishScan(true);
     }
   };
 
   eventSource.onerror = () => {
-    term('✖  Stream connection lost.', 't-red');
+    term('Stream connection lost.', 'err');
     eventSource.close();
-    resetUI();
+    stopLivePolling();
+    finishScan(false);
   };
 }
 
-// ── Stop scan ─────────────────────────────────────────────────
-function stopScan() {
-  if (eventSource) { eventSource.close(); eventSource = null; }
-  term('■  Scan stopped by user.', 't-yellow');
-  resetUI();
-}
-
-function resetUI(fully=true) {
-  document.getElementById('btnScan').disabled = false;
-  document.getElementById('btnStop').style.display = 'none';
-  if (fully) {
-    document.getElementById('statusBar').style.display = 'none';
-    document.getElementById('progressWrap').style.display = 'none';
-  }
-}
-
-// ── Load Results ──────────────────────────────────────────────
-async function loadResults(scanId) {
-  const res  = await fetch(`/api/scan/result/${scanId}`);
-  const data = await res.json();
-  if (!data.result) return;
-
-  const r   = data.result;
-  const sum = r.summary || {};
-  const sev = sum.by_severity || {};
-
-  // Summary cards
-  document.getElementById('summaryCards').innerHTML = `
-    <div class="card c-total"><div class="card-lbl">Total Findings</div><div class="card-val">${sum.total_findings||0}</div><div class="card-sub">vulnerabilities</div></div>
-    <div class="card c-crit"><div class="card-lbl">Critical</div><div class="card-val">${sev.critical||0}</div><div class="card-sub">immediate</div></div>
-    <div class="card c-high"><div class="card-lbl">High</div><div class="card-val">${sev.high||0}</div><div class="card-sub">urgent</div></div>
-    <div class="card c-med"><div class="card-lbl">Medium</div><div class="card-val">${sev.medium||0}</div><div class="card-sub">review</div></div>
-    <div class="card c-low"><div class="card-lbl">Low</div><div class="card-val">${sev.low||0}</div><div class="card-sub">monitor</div></div>
-    <div class="card c-risk"><div class="card-lbl">Avg Risk</div><div class="card-val">${sum.average_risk_score||0}<small style="font-size:.9rem;opacity:.5">/100</small></div><div class="card-sub">score</div></div>
-  `;
-
-  // Download bar
-  const jname = data.json_file, hname = data.html_file, gname = data.groq_file || (jname ? jname.replace('.json', '_groq.json') : '');
-  document.getElementById('dlBar').innerHTML = `
-    ${jname ? `<a class="btn-dl" href="/reports/${jname}" download>⬇ JSON Report</a>` : ''}
-    ${hname ? `<a class="btn-dl" href="/reports/${hname}" target="_blank">↗ Open HTML Report</a>` : ''}
-    ${gname ? `<a class="btn-dl" href="/reports/${gname}" target="_blank">🏛 Groq Supreme Judge Report</a>` : ''}
-    ${jname ? `<a class="btn-dl" href="/reports/${jname}" target="_blank">📊 3-Permutation Report</a>` : ''}
-  `;
-
-  // Findings table
-  const findings = (r.findings || []).sort((a,b) => b.risk_score - a.risk_score);
-  if (!findings.length) {
-    document.getElementById('findingsWrap').innerHTML =
-      '<div class="no-findings">✅ No vulnerabilities detected.</div>';
+function finishScan(success) {
+  scanning = false;
+  document.getElementById('pillGrid').classList.remove('locked');
+  const stopBtn = document.getElementById('stopBtn');
+  stopBtn.disabled = true;
+  stopBtn.classList.remove('active', 'stopping');
+  stopBtn.innerHTML = `<i data-lucide="square" size="16"></i><span>Stop</span>`;
+  lucide.createIcons();
+  const submitBtn = document.getElementById('submitBtn');
+  submitBtn.disabled = false;
+  if (success) {
+    submitBtn.innerHTML = `<i data-lucide="check" size="16"></i><span>Scan complete</span>`;
+    lucide.createIcons();
+    setTimeout(() => {
+      submitBtn.innerHTML = `<i data-lucide="play" size="16"></i><span>Start scan</span>`;
+      lucide.createIcons();
+    }, 4000);
   } else {
-    const rows = findings.map((f,i) => {
-      const sev = (f.severity||'unknown').toLowerCase();
-      const rc  = {critical:'rc',high:'rh',medium:'rm',low:'rl'}[sev]||'';
-      const rs  = parseFloat(f.risk_score||0);
-      const col = rs>=80?'#f87171':rs>=60?'#fb923c':rs>=40?'#facc15':'#4ade80';
-      return `<tr class="${rc}">
-        <td style="color:var(--text3);font-family:'JetBrains Mono',monospace;font-size:.72rem">${i+1}</td>
-        <td><span class="mono">${esc(f.id)}</span></td>
-        <td style="font-weight:600;white-space:nowrap">${esc(f.name)}</td>
-        <td style="color:var(--text2);font-size:.78rem">${esc(f.category)}</td>
-        <td><span class="badge b-${esc(sev)}">${esc(f.severity)}</span></td>
-        <td><div class="risk-wrap">
-          <span class="risk-num" style="color:${col}">${Math.round(rs)}</span>
-          <div class="risk-track"><div class="risk-fill" style="width:${rs}%;background:${col}"></div></div>
-        </div></td>
-        <td style="font-family:'JetBrains Mono',monospace;font-size:.75rem;color:var(--text2)">${Math.round((f.confidence||0)*100)}%</td>
-        <td><span class="mono">${esc(f.detected_tag)}</span></td>
-        <td><span class="mono">${esc(f.matched_text)}</span></td>
-      </tr>`;
-    }).join('');
-    document.getElementById('findingsWrap').innerHTML = `
-      <div class="tbl-wrap"><table>
-        <thead><tr>
-          <th>#</th><th>ID</th><th>Name</th><th>Category</th>
-          <th>Severity</th><th>Risk Score</th><th>Confidence</th>
-          <th>Detected Tag</th><th>Matched Text</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>`;
+    submitBtn.innerHTML = `<i data-lucide="play" size="16"></i><span>Start scan</span>`;
+    lucide.createIcons();
+    resetReports();
   }
-
-  document.getElementById('resultsSection').style.display = 'block';
 }
 
-function esc(str) {
-  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+async function stopScan() {
+  if (!scanning || !currentScanId) return;
+  const stopBtn = document.getElementById('stopBtn');
+  stopBtn.disabled = true;
+  stopBtn.classList.add('stopping');
+  stopBtn.innerHTML = `<i data-lucide="loader-2" size="14" class="spin"></i><span>Stopping…</span>`;
+  lucide.createIcons();
+  try {
+    await fetch(`/api/scan/stop/${currentScanId}`, {method: 'POST'});
+    term('Stop signal sent — finishing current request…', 'warn');
+    document.getElementById('liveStatus').textContent = 'Stopping…';
+  } catch(e) {
+    term('Failed to send stop signal: ' + e.message, 'err');
+    stopBtn.disabled = false;
+    stopBtn.classList.remove('stopping');
+  }
+}
+
+async function loadResults(scanId) {
+  try {
+    const res  = await fetch(`/api/scan/result/${scanId}`);
+    const data = await res.json();
+    if (!data.result) return;
+
+    const r   = data.result;
+    const sum = r.summary || {};
+    const sev = sum.by_severity || {};
+    const tested = r.total_payloads_tested || 0;
+    const safe = Math.max(tested - (sum.total_findings || 0), 0);
+
+    document.getElementById('summaryCards').innerHTML = `
+      <div class="stat"><div class="stat-val">${tested}</div><div class="stat-lbl">Tests</div></div>
+      <div class="stat"><div class="stat-val">${sum.total_findings||0}</div><div class="stat-lbl">Findings</div></div>
+      <div class="stat"><div class="stat-val">${safe}</div><div class="stat-lbl">Safe</div></div>
+      <div class="stat stat-high"><div class="stat-val">${sev.high||0}</div><div class="stat-lbl">High</div></div>
+      <div class="stat stat-med"><div class="stat-val">${sev.medium||0}</div><div class="stat-lbl">Medium</div></div>
+      <div class="stat stat-low"><div class="stat-val">${sev.low||0}</div><div class="stat-lbl">Low</div></div>
+    `;
+
+    const findings = (r.findings || []).slice().sort((a,b) => (b.risk_score||0) - (a.risk_score||0));
+    const wrap = document.getElementById('findingsWrap');
+    if (!findings.length) {
+      wrap.innerHTML = `<div class="no-findings"><i data-lucide="shield-check" size="18"></i> No vulnerabilities detected.</div>`;
+    } else {
+      wrap.innerHTML = findings.map(f => {
+        const sevKey = (f.severity||'low').toLowerCase();
+        return `<div class="finding-card sev-${esc(sevKey)}">
+          <div class="finding-top">
+            <span class="finding-name">${esc(f.name || f.detected_tag || 'Finding')}</span>
+            <span class="sev-badge sev-${esc(sevKey)}">${esc(f.severity||'')}</span>
+          </div>
+          <div class="finding-meta">
+            <span>${esc(f.category||'')}</span>
+            <span>Confidence ${Math.round((f.confidence||0)*100)}%</span>
+            <span>Risk ${Math.round(f.risk_score||0)}/100</span>
+          </div>
+          ${f.matched_text ? `<div class="finding-evidence"><span class="ev-label">Evidence</span>${esc(f.matched_text)}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+    lucide.createIcons();
+
+    setReportLinks(data.json_file, data.html_file);
+    document.getElementById('resultsCard').style.display = 'block';
+  } catch(e) {
+    term('Could not load scan results: ' + e.message, 'err');
+  }
 }
 </script>
 </body>
 </html>
 """
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes
@@ -662,6 +811,24 @@ function esc(str) {
 def index():
     return DASHBOARD_HTML
 
+
+@app.route("/favicon.ico")
+def favicon():
+    return "", 204
+
+
+@app.route("/api/live-status")
+def api_live_status():
+    """Serve the live_status.json file content as JSON for the embedded attack map."""
+    path = os.path.join(REPORTS_DIR, "live_status.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return jsonify(data)
+    except FileNotFoundError:
+        return jsonify({"error": "no scan running"}), 404
+    except Exception:
+        return jsonify({"error": "read error"}), 500
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -683,26 +850,47 @@ def api_scan():
     scan_id = str(uuid.uuid4())
     q: queue.Queue = queue.Queue()
 
+    stop_event = threading.Event()
     with _store_lock:
         _scan_store[scan_id] = {
-            "status":    "running",
-            "queue":     q,
-            "result":    None,
-            "json_file": None,
-            "html_file": None,
+            "status":     "running",
+            "queue":      q,
+            "result":     None,
+            "json_file":  None,
+            "html_file":  None,
+            "stop_event": stop_event,
         }
 
+    # Reset live_status.json IMMEDIATELY so the JS poller never reads stale
+    # "finished: true" data from a previous scan.  This is synchronous —
+    # by the time the browser first polls /api/live-status (~800ms later)
+    # the file already contains finished=False and empty categories.
+    try:
+        os.makedirs(REPORTS_DIR, exist_ok=True)
+        _reset_status = {
+            "scan_id":          scan_id,
+            "target_url":       url + endpoint,
+            "started_at":       datetime.now(timezone.utc).isoformat(),
+            "categories":       {},
+            "overall_progress": {"tested": 0, "total": 0},
+            "finished":         False,
+            "initializing":     True,
+        }
+        with open(os.path.join(REPORTS_DIR, "live_status.json"), "w", encoding="utf-8") as _fh:
+            json.dump(_reset_status, _fh, indent=2)
+    except Exception:
+        pass
 
     thread = threading.Thread(
         target=_run_scan_thread,
-        args=(scan_id, url, endpoint, apikey, rate_limit, categories),
+        args=(scan_id, url, endpoint, apikey, rate_limit, categories, stop_event),
         daemon=True,
     )
     thread.start()
     return jsonify({"scan_id": scan_id})
 
 
-def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
+def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories, stop_event):
     """Background thread: runs the full scan and pushes SSE events to the queue."""
     store = _scan_store[scan_id]
     q: queue.Queue = store["queue"]
@@ -729,8 +917,30 @@ def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
                 all_findings = []
                 total_tested = 0
 
+                # -- Live map: init status --
+                _lm_status = {}
+                _lm_path = os.path.join(REPORTS_DIR, "live_status.json")
+                try:
+                    _cat_order, _cat_totals = [], {}
+                    for _c, _p in payload_list:
+                        if _c not in _cat_totals:
+                            _cat_order.append(_c); _cat_totals[_c] = 0
+                        _cat_totals[_c] += 1
+                    _lm_status = _ls.init_status(_cat_order, url + endpoint)
+                    for _c in _cat_order:
+                        _lm_status["categories"][_c]["total"] = _cat_totals[_c]
+                        _lm_status["categories"][_c]["safe_count"] = 0
+                    _lm_status["overall_progress"]["total"] = len(payload_list)
+                    _ls.write_status(_lm_status, _lm_path)
+                except Exception:
+                    pass
+                _lm_prev_cat = None
 
                 for idx, (category, payload) in enumerate(payload_list, 1):
+                    if stop_event.is_set():
+                        push({"type": "error", "message": "Scan stopped by user."})
+                        break
+
                     pid   = payload.get("id", f"UNKNOWN-{idx}")
                     pname = payload.get("name", "Unnamed")
                     ptext = payload.get("prompt", "")
@@ -738,7 +948,20 @@ def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
                     push({"type": "progress", "id": pid, "name": pname,
                           "idx": idx, "total": len(payload_list)})
 
-
+                    # -- Live map: category transitions --
+                    if _lm_status:
+                        try:
+                            if category != _lm_prev_cat:
+                                if _lm_prev_cat and _lm_prev_cat in _lm_status["categories"]:
+                                    pd = _lm_status["categories"][_lm_prev_cat]
+                                    pd["state"] = "vulnerable" if pd["findings"] > 0 else "safe"
+                                    _ls.write_status(_lm_status, _lm_path)
+                                if category in _lm_status["categories"]:
+                                    _lm_status["categories"][category]["state"] = "testing"
+                                    _ls.write_status(_lm_status, _lm_path)
+                                _lm_prev_cat = category
+                        except Exception:
+                            pass
 
                     if not ptext:
                         push({"type": "ok"})
@@ -774,14 +997,36 @@ def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
                                   "risk":     scored["risk_score"],
                                   "matched":  scored["matched_text"]})
 
-
+                    # -- Live map: per-payload counts --
+                    if _lm_status:
+                        try:
+                            _lm_status["overall_progress"]["tested"] = total_tested
+                            if category in _lm_status["categories"]:
+                                _lm_status["categories"][category]["tested"] += 1
+                                if raw_findings:
+                                    _lm_status["categories"][category]["findings"] += len(raw_findings)
+                                else:
+                                    _lm_status["categories"][category]["safe_count"] = _lm_status["categories"][category].get("safe_count", 0) + 1
+                            _ls.write_status(_lm_status, _lm_path)
+                        except Exception:
+                            pass
 
                     if self.rate_limit_seconds > 0 and idx < len(payload_list):
                         time.sleep(self.rate_limit_seconds)
 
                 summary = aggregate_summary(all_findings)
 
-
+                # -- Live map: finalise --
+                if _lm_status:
+                    try:
+                        if _lm_prev_cat and _lm_prev_cat in _lm_status["categories"]:
+                            last = _lm_status["categories"][_lm_prev_cat]
+                            last["state"] = "vulnerable" if last["findings"] > 0 else "safe"
+                        _lm_status["overall_progress"]["tested"] = total_tested
+                        _lm_status["finished"] = True
+                        _ls.write_status(_lm_status, _lm_path)
+                    except Exception:
+                        pass
 
                 result = {
                     "target_url":            url + endpoint,
@@ -811,21 +1056,15 @@ def _run_scan_thread(scan_id, url, endpoint, apikey, rate_limit, categories):
         basename   = "scan_" + datetime.now().strftime("%Y%m%d_%H%M%S")
         json_path  = os.path.join(REPORTS_DIR, basename + ".json")
         html_path  = os.path.join(REPORTS_DIR, basename + ".html")
-        groq_path  = os.path.join(REPORTS_DIR, basename + "_groq.json")
 
         generate_json_report(scan_result, json_path)
         generate_html_report(scan_result, html_path)
-        try:
-            generate_groq_report(scan_result, groq_path)
-        except Exception:
-            pass
 
         with _store_lock:
             store["status"]    = "done"
             store["result"]    = scan_result
             store["json_file"] = basename + ".json"
             store["html_file"] = basename + ".html"
-            store["groq_file"] = basename + "_groq.json"
 
     except Exception as exc:
         push({"type": "error", "message": str(exc)})
@@ -871,8 +1110,19 @@ def api_scan_result(scan_id):
         "result":    store["result"],
         "json_file": store["json_file"],
         "html_file": store["html_file"],
-        "groq_file": store.get("groq_file", store["json_file"].replace(".json", "_groq.json")),
     })
+
+
+@app.route("/api/scan/stop/<scan_id>", methods=["POST"])
+def api_scan_stop(scan_id):
+    """Signal the running scan thread to stop gracefully."""
+    store = _scan_store.get(scan_id)
+    if not store:
+        return jsonify({"error": "scan not found"}), 404
+    stop_event = store.get("stop_event")
+    if stop_event:
+        stop_event.set()
+    return jsonify({"ok": True})
 
 
 @app.route("/reports/<path:filename>")
@@ -887,7 +1137,7 @@ def main() -> None:
     """Entry point for the 'llm-scanner-web' pip command."""
     import webbrowser
     import threading
-    print("\n  [*] LLM Scanner Web Dashboard")
+    print("\n  [*] AI-Xray — AI/LLM Application Security Scanner")
     print("  -------------------------------------")
     print("  Open in browser:  http://localhost:8080\n")
     threading.Timer(1.5, lambda: webbrowser.open("http://localhost:8080")).start()

@@ -23,7 +23,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LLM Security Scan Report</title>
+  <title>AI-Xray — LLM Security Scan Report</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
@@ -120,28 +120,35 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     .navbar-brand {
       display: flex;
       align-items: center;
-      gap: 0.6rem;
-      font-weight: 800;
-      font-size: 1.05rem;
+      gap: 0.75rem;
       color: var(--text-primary);
-      letter-spacing: -0.02em;
     }
     .navbar-brand .shield {
-      width: 32px; height: 32px;
+      width: 34px; height: 34px;
       background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
       border-radius: 8px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 1rem;
+      font-size: 1.05rem;
       box-shadow: 0 0 16px rgba(99,179,237,0.4);
+      flex-shrink: 0;
     }
-    .navbar-brand .version {
-      font-size: 0.68rem;
-      font-weight: 500;
-      color: var(--text-muted);
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 99px;
-      padding: 0.1rem 0.5rem;
+    .navbar-brand .brand-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
+    }
+    .navbar-brand .brand-name {
+      font-weight: 800;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+    .navbar-brand .brand-sub {
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-secondary);
     }
     .navbar-right { display: flex; align-items: center; gap: 1rem; }
     .navbar-badge {
@@ -469,27 +476,38 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       border: 1px solid var(--border);
       box-shadow: var(--shadow-card);
       margin-top: 0.5rem;
+      width: 100%;
     }
-    table { width: 100%; border-collapse: collapse; background: var(--bg-card); font-size: 0.82rem; }
+    table {
+      width: 100%;
+      min-width: 1600px;
+      border-collapse: collapse;
+      background: var(--bg-card);
+      font-size: 0.82rem;
+      table-layout: fixed;
+    }
     thead { background: var(--table-header); }
     thead th {
-      padding: 0.9rem 1rem;
+      padding: 0.85rem 0.8rem;
       text-align: left;
-      font-size: 0.63rem;
+      font-size: 0.65rem;
       font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       color: var(--text-muted);
       white-space: nowrap;
       border-bottom: 1px solid var(--border);
     }
     tbody td {
-      padding: 0.85rem 1rem;
+      padding: 0.85rem 0.8rem;
       border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-      max-width: 240px;
+      vertical-align: top;
       color: var(--text-primary);
       transition: background 0.15s ease;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      position: relative;
+      box-sizing: border-box;
     }
     tbody tr:last-child td { border-bottom: none; }
     tbody tr.row-critical { background: var(--row-critical); }
@@ -497,20 +515,49 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     tbody tr.row-medium   { background: var(--row-medium); }
     tbody tr.row-low      { background: var(--row-low); }
     tbody tr:hover td     { background: var(--bg-card-hover) !important; }
-    .row-num { font-size: 0.72rem; color: var(--text-muted); font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .row-num { font-size: 0.72rem; color: var(--text-muted); font-weight: 700; font-family: 'JetBrains Mono', monospace; text-align: center; }
 
     /* ── Monospace Code Snippets ─────────────────────────────────── */
     .mono {
       font-family: 'JetBrains Mono', 'Consolas', monospace;
-      font-size: 0.75rem;
+      font-size: 0.73rem;
       background: var(--mono-bg);
       border: 1px solid var(--mono-border);
       border-radius: 6px;
-      padding: 0.18rem 0.45rem;
+      padding: 0.3rem 0.55rem;
       color: var(--accent-cyan);
       word-break: break-word;
+      white-space: pre-wrap;
+      display: block;
+      max-height: 120px;
+      overflow-y: auto;
+      line-height: 1.45;
+      box-sizing: border-box;
+      width: 100%;
+    }
+    .mono-inline {
+      font-family: 'JetBrains Mono', 'Consolas', monospace;
+      font-size: 0.73rem;
+      background: var(--mono-bg);
+      border: 1px solid var(--mono-border);
+      border-radius: 6px;
+      padding: 0.15rem 0.4rem;
+      color: var(--accent-cyan);
+      white-space: nowrap;
       display: inline-block;
-      max-width: 100%;
+    }
+    .tag-box {
+      font-family: 'JetBrains Mono', 'Consolas', monospace;
+      font-size: 0.72rem;
+      background: var(--mono-bg);
+      border: 1px solid var(--mono-border);
+      border-radius: 6px;
+      padding: 0.2rem 0.45rem;
+      color: var(--accent-cyan);
+      word-break: break-word;
+      white-space: normal;
+      display: block;
+      line-height: 1.4;
     }
 
     /* ── Empty State ─────────────────────────────────────────────── */
@@ -687,8 +734,10 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <nav class="navbar">
   <div class="navbar-brand">
     <div class="shield">🛡</div>
-    LLM Scanner
-    <span class="version">v1.0</span>
+    <div class="brand-text">
+      <span class="brand-name">AI-Xray</span>
+      <span class="brand-sub">LLM Application Security Scanner</span>
+    </div>
   </div>
   <div class="navbar-right">
     <span class="navbar-badge">OWASP LLM Top 10</span>
@@ -709,7 +758,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
       <span class="title-icon">🔍</span>
       Security Scan Report
     </h1>
-    <p class="hero-subtitle">AI Red-Teaming Toolkit &nbsp;·&nbsp; Automated Vulnerability Assessment</p>
+    <p class="hero-subtitle">AI-Xray &nbsp;·&nbsp; AI Red-Teaming Toolkit &nbsp;·&nbsp; Automated Vulnerability Assessment</p>
     <div class="hero-meta">
       <div class="hero-meta-item">
         <div class="hero-meta-label">Target URL</div>
@@ -832,18 +881,18 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
     <table>
       <thead>
         <tr>
-          <th>#</th>
-          <th>ID</th>
-          <th>Name</th>
-          <th>Category</th>
-          <th>Severity</th>
-          <th>Risk Score</th>
-          <th>Confidence</th>
-          <th>Validation</th>
-          <th>Detected Tag</th>
-          <th>Matched Text</th>
-          <th>Prompt Sent</th>
-          <th>Judge Review</th>
+          <th style="width:40px;text-align:center;">#</th>
+          <th style="width:85px;">ID</th>
+          <th style="width:160px;">Name</th>
+          <th style="width:140px;">Category</th>
+          <th style="width:95px;">Severity</th>
+          <th style="width:120px;">Risk Score</th>
+          <th style="width:95px;">Confidence</th>
+          <th style="width:115px;">Validation</th>
+          <th style="width:160px;">Detected Tag</th>
+          <th style="width:280px;">Matched Text</th>
+          <th style="width:280px;">Prompt Sent</th>
+          <th style="width:110px;">Judge Review</th>
         </tr>
       </thead>
       <tbody>
@@ -853,9 +902,9 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
         {% set has_judges = f.get('judge_evaluations') %}
         <tr class="row-{{ sev }}">
           <td class="row-num">{{ loop.index }}</td>
-          <td><span class="mono">{{ f.id }}</span></td>
-          <td style="font-weight:600;white-space:nowrap;">{{ f.name }}</td>
-          <td style="color:var(--text-secondary);font-size:0.8rem;">{{ f.category }}</td>
+          <td><span class="mono-inline">{{ f.id }}</span></td>
+          <td style="font-weight:600;word-break:break-word;">{{ f.name }}</td>
+          <td style="color:var(--text-secondary);font-size:0.8rem;word-break:break-word;">{{ f.category }}</td>
           <td>
             <span class="badge badge-{% if sev in ['critical','high','medium','low'] %}{{ sev }}{% else %}unknown{% endif %}">
               {{ f.severity }}
@@ -890,7 +939,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
             <span class="vbadge vbadge-HEURISTIC">Heuristic</span>
             {% endif %}
           </td>
-          <td><span class="mono">{{ f.detected_tag }}</span></td>
+          <td><span class="tag-box">{{ f.detected_tag }}</span></td>
           <td><span class="mono">{{ f.matched_text }}</span></td>
           <td><span class="mono">{{ f.prompt_sent }}</span></td>
           <td>

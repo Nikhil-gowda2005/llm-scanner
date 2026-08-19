@@ -488,7 +488,8 @@ def _save_reports(
         try:
             generate_json_report(scan_result, json_path)
             saved["json"] = json_path
-            print(Fore.GREEN + f"[REPORT] JSON report saved : {json_path}")
+            file_url = f"file:///{os.path.abspath(json_path).replace(os.sep, '/')}"
+            print(Fore.GREEN + f"[REPORT] JSON report saved : {file_url}")
         except Exception as exc:
             print(Fore.RED + f"[ERROR]  Failed to write JSON report: {exc}")
 
@@ -497,7 +498,8 @@ def _save_reports(
         try:
             generate_html_report(scan_result, html_path)
             saved["html"] = html_path
-            print(Fore.GREEN + f"[REPORT] HTML report saved : {html_path}")
+            file_url = f"file:///{os.path.abspath(html_path).replace(os.sep, '/')}"
+            print(Fore.GREEN + f"[REPORT] HTML report saved : {file_url}")
         except Exception as exc:
             print(Fore.RED + f"[ERROR]  Failed to write HTML report: {exc}")
 
@@ -549,7 +551,8 @@ def _print_final_summary(scan_result: dict, saved_paths: dict) -> None:
 
     for label, path in [("JSON", saved_paths.get("json")), ("HTML", saved_paths.get("html"))]:
         if path:
-            print(Fore.CYAN + f"  {label} Report : {path}")
+            file_url = f"file:///{os.path.abspath(path).replace(os.sep, '/')}"
+            print(Fore.CYAN + f"  {label} Report : {file_url}")
 
     avg_rs = summary.get("average_risk_score", 0.0)
     print(Fore.CYAN + f"  Avg Risk Score : {avg_rs}/100")
@@ -726,8 +729,15 @@ def main() -> None:
         # ── Auto-open HTML report in browser (unless --no-open-browser) ───
         if args.open_browser and saved_paths.get("html"):
             html_abs = os.path.abspath(saved_paths["html"])
-            print(Fore.CYAN + f"[BROWSER] Opening report: {html_abs}")
-            webbrowser.open(f"file:///{html_abs.replace(os.sep, '/')}")
+            file_url = f"file:///{html_abs.replace(os.sep, '/')}"
+            print(Fore.CYAN + f"[BROWSER] Opening report: {file_url}")
+            try:
+                if sys.platform == "win32":
+                    os.startfile(html_abs)
+                else:
+                    webbrowser.open(file_url)
+            except Exception:
+                webbrowser.open(file_url)
 
     except KeyboardInterrupt:
         print()
